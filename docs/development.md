@@ -33,14 +33,20 @@ python3 scripts/build_ipa_from_nsp.py ~/Games/MarioWonder -k ~/keys/prod.keys --
 
 # a damaged NSP (files failing the NCA's hash check) stops the build after listing them; this packs those files as read
 python3 scripts/build_ipa_from_nsp.py ~/Games/MarioGalaxy -k ~/keys/prod.keys --allow-damaged
+
+# a game without a profile: survey, provisional profile (a heap check on the Mac when the game needs one), best-effort IPA
+python3 scripts/build_ipa_from_nsp.py ~/Games/NewGame -k ~/keys/prod.keys
+
+# test the guesses on a game that has a profile: build from a provisional one (the IPA is named <ipa>-provisional.ipa)
+python3 scripts/build_ipa_from_nsp.py ~/Games/MarioGalaxy -k ~/keys/prod.keys --provisional --allow-damaged
 ```
 
-In Spyder, open the script, fill in the settings at the top (`NSP_DIR`, `PROD_KEYS`, and optionally `PACKAGE`, `OUT_IPA`, `APP_NAME`, `BUNDLE_ID`), and press F5. Empty paths are asked for at run time.
+In Spyder, open the script, fill in the settings at the top (`NSP_DIR`, `PROD_KEYS`, and optionally `PACKAGE`, `OUT_IPA`, `APP_NAME`, `BUNDLE_ID`; for a game without a profile `HEAP_CHECK`, `HEAP_CHECK_SECS`, `PROVISIONAL`), and press F5. Empty paths are asked for at run time.
 
 What the script does:
 1. It finds the game profile from the title ID (the `[title ID]` in the file names, or the NSP's ticket; the update by its `[vN]` tag).
 2. It extracts the NSPs.
-3. It rewrites the code modules, checking each build ID against the profile.
+3. It rewrites the code modules, checking each build ID against the profile. A provisional profile (a game without one in `dm/games`) then gets `mem_used` from the rewritten modules, and, when the game has virtual address memory and sets a heap, a heap check: the Mac host is built into `<id>_build/tools/dmhost` and the game boots in it until its first heap request (a few seconds, log `<id>_build/logs/heap_check.log`), which sizes the heap region (see [dm/games/README.md](../dm/games/README.md), Adding a game).
 4. For a profile with `shader_glslc_capture on` (Three Houses), it captures the shaders the game compiles at run time, which no game file holds. It builds the Mac host into `<id>_build/tools/dmhost` and boots the game in it, headless and silent, with `DM_GLSLC_CAPTURE` pointing at `<id>_build/extract/<version>/glslc_capture`. The save, temporary storage and log all stay in `<id>_build/`. It stops the game as soon as every capture file named in the profile's shader map is there (Three Houses: 9, about a second after launch), and gives up after 30 s. A folder that already holds them all is reused.
    A Vulkan profile with `shader_vk_capture on` (Super Mario Galaxy) gets the same kind of run: the game boots in the Mac host with `DM_VK_CAPTURE` pointing at `<id>_build/extract/<version>/vk_capture` until every SPIR-V key in the profile's `vk_capture.tsv` is there (Galaxy: 3,089, about 7 s after launch), and gives up after 120 s.
 5. It splits out the shaders and checks them against the profile's tables (a Vulkan profile: it translates the RomFS's SPIR-V and the capture with `vk_shaders.py` instead).
@@ -70,7 +76,7 @@ Each game has a profile in `dm/games/<id>/`:
 The shader tools pick a profile with `DM_GAME=<id>`; `make -C dm/host` and `build_ipa.sh` pick it with `GAME=<id>`. Profiles are named after the base game's title ID. There is no default game: without `GAME` / `DM_GAME` the tools stop and list the profiles. `python3 dm/games/game.py list` lists the profiles. Host code that relies on one build's fixed addresses checks that build's ID.
 
 To add a game:
-1. Run `scripts/build_ipa_from_nsp.py` on its NSP folder. With no matching profile, it writes a survey to `<title ID>_survey/survey.md`. The survey covers the modules, SDK, engine, containers, rewrite sites, and the imports compared with the host's hooks. It then guesses a provisional profile from the survey into `<title ID>_build/profile/<title ID>/` (outside the repository; tools find it through `DM_GAMES_DIR`), generates its shader tables and chain header, and packs a best-effort IPA that may not boot. `--survey-only` stops after the survey, and `--profile-out` puts the profile elsewhere. Details in [dm/games/README.md](../dm/games/README.md).
+1. Run `scripts/build_ipa_from_nsp.py` on its NSP folder. With no matching profile, it writes a survey to `<title ID>_survey/survey.md`. The survey covers the modules, SDK, engine, containers, rewrite sites, and the imports compared with the host's hooks. It then writes a provisional profile into `<title ID>_build/profile/<title ID>/` (outside the repository; tools find it through `DM_GAMES_DIR`) with the keys `dm/games/profile_guess.py` reads off the game files: the graphics API, the modules to load, where the shaders come from, the memory partition, SDK and engine presets. After the rewrite it sets `mem_used` from the rewritten modules and, for a game with virtual address memory that sets a heap, boots it on the Mac until its heap request (the heap check, a few seconds) to size the heap region. Then it generates the shader tables and chain header and packs a best-effort IPA that may not boot. `--survey-only` stops after the survey, `--no-heap-check` skips the heap check, and `--profile-out` puts the profile elsewhere. `--provisional` does all this for a game that has a profile, to test the guesses; `python3 dm/games/profile_guess.py --check` compares the static guesses with every profile. Details in [dm/games/README.md](../dm/games/README.md).
 2. Add a profile as described in [dm/games/README.md](../dm/games/README.md).
 3. Bring the game up following [docs/agents](agents/README.md): extraction, binary survey, a catalogue of host bring-up failures, graphics, and debugging recipes.
 

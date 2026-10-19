@@ -4,7 +4,8 @@
 #   game.py dir <id> (print the profile folder); game.py link <id> <link> (point a symlink at the profile folder: make cannot take paths with spaces)
 #   From Python: import game; g = game.load() (takes DM_GAME; there is no default game: unset is an error that lists the profiles); game.by_title(title ID); g.get / g.words / g.int / g.builds() / g.table(file name)
 # DM_GAMES_DIR (folders separated by ':') adds profile folders outside the repository, searched after dm/games: the NSP script writes a provisional profile for a game without one into
-#   <NSP folder>/<id>_build/profile/<id>/ and points DM_GAMES_DIR at <id>_build/profile, so the shader tools, the host build and build_ipa.sh all find it
+#   <NSP folder>/<id>_build/profile/<id>/ and points DM_GAMES_DIR at <id>_build/profile, so the shader tools, the host build and build_ipa.sh all find it.
+#   DM_GAMES_FIRST=1 searches DM_GAMES_DIR before dm/games (the NSP script's --provisional: a provisional profile for a game that has one in dm/games, to test the guesses)
 import os, re, sys
 from pathlib import Path
 
@@ -50,9 +51,13 @@ def extra_dirs():   # profile folders outside the repository (DM_GAMES_DIR), sea
     return [Path(p) for p in os.environ.get('DM_GAMES_DIR', '').split(':') if p]
 
 
-def find_dir(name):   # the profile folder of a title ID (dm/games first, then DM_GAMES_DIR); a path is taken as is
+def search_dirs():   # dm/games, then DM_GAMES_DIR; DM_GAMES_FIRST=1 the other way round
+    return extra_dirs() + [HERE] if os.environ.get('DM_GAMES_FIRST') else [HERE] + extra_dirs()
+
+
+def find_dir(name):   # the profile folder of a title ID (the first of search_dirs that has it); a path is taken as is
     if os.sep in str(name): return Path(name)
-    return next((d / name for d in [HERE] + extra_dirs() if (d / name / 'game.tsv').exists()), HERE / name)
+    return next((d / name for d in search_dirs() if (d / name / 'game.tsv').exists()), HERE / name)
 
 
 def load(name=None):
@@ -69,7 +74,7 @@ def load(name=None):
 
 def all_games():
     out, seen = [], set()
-    for root in [HERE] + extra_dirs():
+    for root in search_dirs():
         if not root.is_dir(): continue
         for d in sorted(root.iterdir()):
             if (d / 'game.tsv').exists() and d.name not in seen: seen.add(d.name); out.append(Game(d))
@@ -154,8 +159,9 @@ if __name__ == '__main__':
     if a == ['list']:
         for g in all_games(): print(f'{g.id}\t{g.title_id:016X}\t{g.get("name", "")}')
     elif len(a) == 3 and a[0] == 'header':
-        out = Path(a[2]); out.parent.mkdir(parents=True, exist_ok=True)
-        tmp = out.with_name(out.name + '.tmp'); tmp.write_text(header(load(a[1]))); tmp.replace(out)
+        out, text = Path(a[2]), header(load(a[1])); out.parent.mkdir(parents=True, exist_ok=True)
+        if not (out.exists() and out.read_text() == text):   # written only when it changes: make runs this every time (the profile folder can change under the same GAME), and an unchanged header must not rebuild the host
+            tmp = out.with_name(out.name + '.tmp'); tmp.write_text(text); tmp.replace(out)
     elif len(a) == 2 and a[0] == 'dir':
         print(load(a[1]).dir)
     elif len(a) == 3 and a[0] == 'link':   # link → the profile folder (replaced when it points elsewhere)
