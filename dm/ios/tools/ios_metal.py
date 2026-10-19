@@ -7,10 +7,13 @@ import subprocess
 # 缺省 fast 让各 GPU 的后端编译器可以把它们当成恒假；A20 Pro 上开场关卡的奇数帧主画面 NaN 72 万像素（M4 Pro 同一份 AIR 只有几十个），黑带 / 黑边光晕即由此而来
 # -fmetal-math-mode=relaxed: keep fast math's reassociation / contraction, but forbid assuming there are no NaN / Inf. The translated shaders reproduce Maxwell's NaN semantics with isnan selects (8337 / 12809 use them),
 # and the default fast mode lets each GPU's backend compiler treat them as always false; on the A20 Pro the opening course's odd frames had 727k NaN pixels in the main image (a few dozen with the same AIR on the M4 Pro), which became the black band / black-edged glow
-METAL = ['xcrun', '-sdk', 'iphoneos', 'metal', '-c', '-mios-version-min=18.0', '-fmetal-math-mode=relaxed']
+METAL = ['xcrun', '-sdk', 'iphoneos', 'metal', '-c', '-mios-version-min=17.0', '-fmetal-math-mode=relaxed', '-fpreserve-invariance']
 METALLIB = ['xcrun', '-sdk', 'iphoneos', 'metallib']
 RECORD = ' '.join(METAL) + '; ' + ' '.join(METALLIB)                                # 写进 json chain.metal | Written into json chain.metal
 
 def compile(msl, air, lib):
-    subprocess.run([*METAL, msl, '-o', air], check=True)
-    subprocess.run([*METALLIB, air, '-o', lib], check=True)
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'gfx/tools'))
+    import metal_content_cache
+    metal_content_cache.compile(msl, air, lib, METAL, METALLIB)

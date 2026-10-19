@@ -1,8 +1,8 @@
 # 翻译链工具指纹（dmsh_chain.py --update-lock 生成；换工具后重生成并随提交入仓）
-dmsh_xlate.dll	6dd3441c31b57475
-Ryujinx.Graphics.Shader.dll	950b659a54a52636
-Ryujinx.Common.dll	74f785bc3a81386e
-xlate_source	23b85cb2e58b9c36
-spirv-cross	d9dc197f061b42a5
-metal_macosx	Apple metal version 32023.921 (metalfe-32023.921.6)
-metal_iphoneos	Apple metal version 32023.921 (metalfe-32023.921.6)
+dmsh_xlate.dll	adb5164ea1b2b9b5
+Ryujinx.Graphics.Shader.dll	922f77fcc3de348f
+Ryujinx.Common.dll	208c3c7c7c360135
+xlate_source	c0e9dd7bd58b5aec
+spirv-cross	8caa75a31452ae23
+metal_macosx	Apple metal version 32023.864 (metalfe-32023.864)
+metal_iphoneos	Apple metal version 32023.864 (metalfe-32023.864)

@@ -848,6 +848,126 @@ for oa, wa, ob_, wb, r, key, why in params:
     emit(STUR(tmp, 31, -16)); emit(MRS_TPIDRRO(r)); emit_slot_addr(r, tmp, key); emit(LDRX(r, r)); emit(LDUR(tmp, 31, -16)); emit(B(here(), oa + 4))
     struct.pack_into('<I', IMG, oa, B(oa, start)); struct.pack_into('<I', IMG, ob_, NOP); stat('param')
 
+# Wonder 1.2.1 native-width prototype. The host supplies zero in both slots when
+# disabled, so every trampoline executes its original instruction byte-for-byte.
+# No runtime executable-memory writes and no addresses imported from D2R.
+# Width is calculated by the game itself: height * numerator / 9 (720*19.5/9=1560).
+# Camera AR and width numerator must be enabled together before guest startup.
+wonder_wide = []
+if NAME == 'main' and BUILD_ID == 'ff773e90972d544eb79406eaa65396d5':
+    assert d[0x40:0x60].hex() == 'ff773e90972d544eb79406eaa65396d53c43efb9000000000000000000000000'
+    assert IMG[0x2aeedb4:0x2aeedb8] == bytes.fromhex('3b8ee33f')
+
+    def wide_check(off, word):
+        assert struct.unpack_from('<I', IMG, off)[0] == word, f'Wonder wide original mismatch: {off:#x}'
+        assert off < TEXT_END and off not in kinds and not any(lo <= off < hi for seg in windows for lo, hi in [(seg[0].address, seg[-1].address+4)])
+
+    def wide_branch_at(pc, target, op):
+        delta = target - pc
+        assert delta % 4 == 0 and -(1 << 20) <= delta < (1 << 20)
+        struct.pack_into('<I', patch, pc-PATCH_OFF, op | (((delta//4) & 0x7ffff) << 5))
+
+    for off, word, reg, key, reason in (
+        (0x2e2b48, 0xbd4db503, 3, 'KASPECT', 'orthographic camera AR; fixed vertical bounds'),
+        (0x6a7630, 0xbd4db503, 3, 'KASPECT', 'default perspective factory AR'),
+        (0x781f30, 0x1e261001, 1, 'KASPECTUI', 'native width numerator; game computes height*numerator/9'),
+    ):
+        wide_check(off, word)
+        start = here()
+        emit(STP_PRE(16, 17, 31, -16))
+        emit(MRS_TPIDRRO(16)); emit_slot_addr(16, 17, key); emit(LDRX(16, 16))
+        skip = here(); emit(0)  # cbz x16, original (does not modify NZCV)
+        emit(0x1e270000 | (16 << 5) | reg)  # fmov sN,w16
+        end_branch = here(); emit(0)
+        original = here(); emit(word)
+        finish = here(); emit(LDP_POST(16, 17, 31, 16)); emit(B(here(), off+4))
+        wide_branch_at(skip, original, 0xb4000010)
+        struct.pack_into('<I', patch, end_branch-PATCH_OFF, B(end_branch, finish))
+        struct.pack_into('<I', IMG, off, B(off, start))
+        wonder_wide.append((off, start, here()-start, word, key, reason)); stat('wonder_wide')
+
+    # Script actions can restore a stock 16:9 perspective aspect after construction.
+    # Normalize only the three stock rounding variants; custom aspects remain intact.
+    # Preserve all scratch registers, SP, NZCV and all SIMD lanes except original s0.
+    off, word = 0x1b6d768, 0xbd405a60  # ldr s0,[x19,#0x58]
+    wide_check(off, word)
+    start = here()
+    emit(STP_PRE(14, 15, 31, -32)); emit(STP(16, 17, 31, 16))
+    emit(0xd53b420e)  # mrs x14,nzcv
+    emit(word)
+    emit(MRS_TPIDRRO(16)); emit_slot_addr(16, 17, 'KASPECT'); emit(LDRX(16, 16))
+    skip = here(); emit(0)
+    emit(0x1e260011)  # fmov w17,s0
+    emit(0x5280000f | (0x8e39 << 5)); emit(0x72a0000f | (0x3fe3 << 5))
+    emit(0x4b0f0231)  # sub w17,w17,w15
+    emit(0x71000a3f)  # cmp w17,#2 (unsigned, accepts 0x3fe38e39..3b)
+    custom = here(); emit(0)
+    emit(0x1e270200)  # fmov s0,w16
+    emit(0xbd005a60)  # str s0,[x19,#0x58]: keep the module's getter consistent with its projection
+    finish = here()
+    emit(0xd51b420e)  # msr nzcv,x14
+    emit(LDP(16, 17, 31, 16)); emit(LDP_POST(14, 15, 31, 32)); emit(B(here(), off+4))
+    wide_branch_at(skip, finish, 0xb4000010)
+    wide_branch_at(custom, finish, 0x54000008)  # b.hi
+    struct.pack_into('<I', IMG, off, B(off, start))
+    wonder_wide.append((off, start, here()-start, word, 'KASPECT', 'script stock-16:9 perspective aspect; custom aspect retained'))
+    stat('wonder_wide')
+
+    # Some camera owners bypass the factory/script updater. Normalize a stock
+    # aspect at the shared perspective matrix builder as well. The original
+    # paired load still runs; custom aspects, FOV, vertical framing and offsets
+    # are untouched. This is a projection change, never a final-frame rescale.
+    off, word = 0x3c0184, 0x2d558801  # ldp s1,s2,[x0,#0xac]: cot(FOV/2), aspect
+    wide_check(off, word)
+    start = here()
+    emit(STP_PRE(14, 15, 31, -32)); emit(STP(16, 17, 31, 16))
+    emit(0xd53b420e); emit(word)
+    emit(MRS_TPIDRRO(16)); emit_slot_addr(16, 17, 'KASPECT'); emit(LDRX(16, 16))
+    skip = here(); emit(0)
+    emit(0x1e260051)  # fmov w17,s2
+    emit(0x5280000f | (0x8e39 << 5)); emit(0x72a0000f | (0x3fe3 << 5))
+    emit(0x4b0f0231); emit(0x71000a3f)
+    custom = here(); emit(0)
+    emit(0x1e270202); emit(0xbd00b002)  # fmov s2,w16; str s2,[x0,#0xb0]
+    finish = here()
+    emit(0xd51b420e); emit(LDP(16, 17, 31, 16)); emit(LDP_POST(14, 15, 31, 32)); emit(B(here(), off+4))
+    wide_branch_at(skip, finish, 0xb4000010); wide_branch_at(custom, finish, 0x54000008)
+    struct.pack_into('<I', IMG, off, B(off, start))
+    wonder_wide.append((off, start, here()-start, word, 'KASPECT', 'shared perspective builder: stock aspect only'))
+    stat('wonder_wide')
+
+    # Authored UI ortho canvases remain 1280x720 / 1920x1080 even when the
+    # scene target grows. At their matrix builder widen the horizontal bounds
+    # about the existing centre; retain the vertical range and all UI positions.
+    # Restrict this to positive 720/1080-high stock-16:9 canvases. Already-wide
+    # course cameras, square targets and arbitrary world-unit frusta pass through.
+    off, word = 0xf190c, 0x1e210800  # fmul s0,s0,s1 (horizontal half-width)
+    wide_check(off, word)
+    start = here()
+    emit(STP_PRE(14, 15, 31, -64)); emit(STP(16, 17, 31, 16)); emit(0xad0117e4)  # save q4,q5
+    emit(0xd53b420e)
+    emit(MRS_TPIDRRO(16)); emit_slot_addr(16, 17, 'KASPECT'); emit(LDRX(16, 16))
+    skip = here(); emit(0)
+    emit(0x2d541404); emit(0x1e253884); emit(0x1e260091)  # height = top-bottom; w17 = bits(height)
+    emit(0x5280000f); emit(0x72a0000f | (0x4434 << 5)); emit(0x6b0f023f)  # 720
+    ui720 = here(); emit(0)
+    emit(0x5280000f); emit(0x72a0000f | (0x4487 << 5)); emit(0x6b0f023f)  # 1080
+    not_ui = here(); emit(0)
+    check_ar = here()
+    emit(0x1e241805); emit(0x1e2600b1)  # aspect = width/height
+    emit(0x5280000f | (0x8e39 << 5)); emit(0x72a0000f | (0x3fe3 << 5))
+    emit(0x4b0f0231); emit(0x71000a3f)
+    custom = here(); emit(0)
+    emit(0x1e270205); emit(0x1e250880)  # width = height * wide aspect
+    original = here(); emit(word)
+    emit(0xd51b420e); emit(0xad4117e4); emit(LDP(16, 17, 31, 16)); emit(LDP_POST(14, 15, 31, 64)); emit(B(here(), off+4))
+    wide_branch_at(skip, original, 0xb4000010)
+    wide_branch_at(ui720, check_ar, 0x54000000); wide_branch_at(not_ui, original, 0x54000001)
+    wide_branch_at(custom, original, 0x54000008)
+    struct.pack_into('<I', IMG, off, B(off, start))
+    wonder_wide.append((off, start, here()-start, word, 'KASPECT', '720/1080 stock UI ortho canvas: widen horizontal projection only'))
+    stat('wonder_wide')
+
 # The three existing native rule trampolines all use only the dead temporary w8 that is overwritten afterwards, and do not change the w0/stat return, sp or NZCV.
 # 6c6290 is after the original mode3 gate; the Blaze / reference count and data invalidation 6c62dc branches before it and the state update after it are untouched.
 rule_blocks = []
@@ -910,6 +1030,7 @@ with open(P('fixups.tsv'), 'w') as f:
     if FAR: f.write(f'# IMAGE_SIZE\t{IMAGE_SIZE:#x}\n# FILE_IMAGE_LEN\t{FILE_IMAGE_LEN:#x}\n')   # patch area before the base (negative PATCH_OFF): whole image size, length of the image part of the file
     for k in KEY_INDEX: f.write(f'# KEY_{k}_IDX\t{KEY_INDEX[k]}\n')
     f.write(f'# BUILD_ID\t{BUILD_ID}\n')   # the host identifies the build by it: features with hard-coded addresses only run on the build they belong to
+    if wonder_wide: f.write('# WONDER_NATIVE_WIDE\t1\n')
 with open(P('gates.tsv'), 'w') as f:
     for ret, k, arg, orig in gates: f.write(f'{ret:#x}\t{k}\t{arg}\t{orig:#x}\n')
 with open(P('sites.tsv'), 'w') as f:
@@ -924,6 +1045,8 @@ with open(P('cuts.tsv'), 'w') as f:
 with open(P('params.tsv'), 'w') as f:
     f.write(f'# BUILD_ID\t{BUILD_ID}\n')
     for oa, wa, ob_, wb, r, key, why in params: f.write(f'{oa:#x}\t{ob_:#x}\tx{r}\t{key}\t{why}\n')
+    for off, start, size, word, key, why in wonder_wide:
+        f.write(f'{off:#x}\t{start:#x}\t{size:#x}\t{key}\t{why}; original={word:08x}; zero=original\n')
 with open(P('obs.tsv'), 'w') as f:
     f.write(f'# BUILD_ID\t{BUILD_ID}\n')
     for off, oid, ow, why in obs: f.write(f'{off:#x}\t{oid}\t{ow}\t{why}\n')

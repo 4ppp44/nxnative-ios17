@@ -398,6 +398,10 @@ def main(args=None):
     if not keys.is_file(): raise BuildError(f'没有这个文件 | no such file: {keys}')
     env = dict(os.environ, PATH=os.pathsep.join(TOOL_PATHS + [os.environ.get('PATH', '/usr/bin:/bin:/usr/sbin:/sbin')]))
     env.setdefault('USER', getpass.getuser())   # xcodegen fails without USER (Couldn't find current username)
+    if 'DOTNET_ROOT' not in env and 'DOTNET_ROOT_ARM64' not in env:
+        for cand in ['/opt/homebrew/opt/dotnet/libexec', '/opt/homebrew/share/dotnet', '/usr/local/share/dotnet', os.path.expanduser('~/.dotnet')]:
+            if os.path.isdir(cand):
+                env['DOTNET_ROOT'] = cand; os.environ['DOTNET_ROOT'] = cand; break
     py = sys.executable
     app, fam = scan_nsps(nsp_dir)
     g = gamemod.by_title(app)
@@ -411,7 +415,20 @@ def main(args=None):
     pkg_ver = args.package or PACKAGE or g.get('package')
     if pkg_ver not in builds: raise BuildError(f"打进 IPA 的版本（-p / PACKAGE）只能是游戏档案登记的 | the version to pack (-p / PACKAGE) must be one the game profile registers: {', '.join(builds)}")
     versions = need + ([pkg_ver] if pkg_ver not in need else [])
-    out_ipa = Path(os.path.expanduser(args.out or OUT_IPA)).resolve() if (args.out or OUT_IPA) else nsp_dir / g.get('ipa')   # by default in the NSP folder, next to the NSPs and <id>_build/
+    build = os.environ.get('DM_BUILD_NUMBER', '')
+    if not re.fullmatch(r'\d{10}', build):
+        build = time.strftime('%Y%m%d01')
+    os.environ['DM_BUILD_NUMBER'] = build
+    env['DM_BUILD_NUMBER'] = build
+    default_release_dir = repo / 'releases'
+    default_release_dir.mkdir(parents=True, exist_ok=True)
+    default_out = default_release_dir / f"{Path(g.get('ipa')).stem}-iOS17-v1.0.0-build{build}.ipa"
+    if args.out or OUT_IPA:
+        out_ipa = Path(os.path.expanduser(args.out or OUT_IPA)).resolve()
+        out_ipa.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        out_ipa = default_out
+    if out_ipa.exists(): raise BuildError(f'输出 IPA 已存在 | output IPA already exists: {out_ipa}')
     say(f'输出 IPA | output IPA: {out_ipa}')
     work = nsp_dir / f'{g.id}_build'
     say(f'工作目录（解出的游戏文件在 extract/，出包后删掉，--keep-extracted 保留）| work folder (extracted game files in extract/, deleted after the IPA is built unless --keep-extracted): {work}')
@@ -446,6 +463,8 @@ def main(args=None):
     sh = work / 'shader'
     split_shaders(py, repo, [dirs[v] / 'RomFS' for v in need], [dirs[v] / 'ExeFS/main' for v in need], sh / 'pkg', env, logs, g)
     ios = build_shaders(py, repo, sh, xlate, env, logs, g)
+    chain = re.search(r'#define DMSH_CHAIN \"(.*)\"', g.table('dmsh_chain.h').read_text()).group(1)
+    run([py, repo / 'dm/gfx/tools/c1_guard.py', sh / 'cache' / f'b-{chain}', g.table('c1_full.tsv')], logs / 'c1_guard.log', env=env)
 
     if free_gb(out_ipa.parent) < 5: raise BuildError(f'{out_ipa.parent} 所在的卷剩余不足 5 GB | less than 5 GB free on the volume of {out_ipa.parent}')
     say(f'出 IPA | building the IPA → {out_ipa}')
@@ -459,7 +478,7 @@ def main(args=None):
     run(['bash', repo / 'dm/ios/tools/build_ipa.sh', out_ipa], logs / 'build_ipa.log', env=ipa_env)
     if not out_ipa.is_file(): raise BuildError(f'没出 IPA | no IPA at {out_ipa}')
     rmtree(work / 'tmp')
-    if not (args.keep_extracted or KEEP_EXTRACTED):
+    if False:  # iOS17 policy: retain extraction cache; resources are external
         say(f'删掉解出的游戏文件 | deleting the extracted game files: {ex}'); rmtree(ex)
     say(f'完成 | done: {out_ipa}（{out_ipa.stat().st_size / 2**30:.1f} GB）')
 

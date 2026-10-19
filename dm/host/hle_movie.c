@@ -291,9 +291,11 @@ static int md_vorbis(mdec_t *d, const uint8_t *p, int n, int slot) {
     return 1;
 }
 static void md_close(mdec_t *d) { if (d->vpx_on) { vpx_codec_destroy(&d->vpx); d->vpx_on = 0; } if (d->vb) { stb_vorbis_close(d->vb); d->vb = NULL; } }
+void dm_host_helper_qos(qos_class_t q);
 static void *md_worker(void *arg) {
     mdec_t *d = arg;
     pthread_setname_np("dm 影片解码 | movie decoder");
+    dm_host_helper_qos(QOS_CLASS_USER_INITIATED);   // under DM_QOS_MAP: decodes ahead of playback, not on the frame's critical path
     pthread_mutex_lock(&d->wmu);
     for (;;) {
         while (d->job == MDJ_NONE) pthread_cond_wait(&d->wcv, &d->wmu);

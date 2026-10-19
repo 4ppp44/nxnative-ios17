@@ -1,6 +1,7 @@
 // Bootstrap: after loading the modules, initialize the SDK runtime in the real order of nn::init::Start (sdk+0x2b0470) in the SDK, then enter nnMain.
 #include "dm.h"
 #include "front.h"
+#include "dm_wonder_wide.h"
 #include <stdatomic.h>
 #include <sys/sysctl.h>
 #include <sys/time.h>
@@ -14,6 +15,7 @@ static char *g_argv[64] = {"game"}; static int g_argc = 1;
 
 void crash_sample_self(void);
 static void guest_main(void) {
+    dm_wonder_wide_prepare();
     guest_thread_init();
     { void inflate_bench_maybe(void); inflate_bench_maybe(); }   // DM_INFLATE_BENCH test mode (for diagnostics, exits when done)
     crash_sample_self();   // DM_SAMPLE sampling (for diagnostics)

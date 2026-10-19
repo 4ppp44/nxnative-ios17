@@ -14,7 +14,7 @@ GFX_H=$(wildcard ../nvn/*.h ../nvn/*.inc ../nvn/include/*.h ../tex/*.h) $(GAME_H
 .DEFAULT_GOAL := t_nvn   # the profile header rule comes first, so keep the default goal as before
 $(GAME_H):
 	$(MAKE) -C ../../host game_profile GAME=$(GAME)
-FW=-framework Metal -framework Foundation -framework QuartzCore -framework ImageIO -framework CoreGraphics -framework UniformTypeIdentifiers
+FW=legacy_test_support.c ../../host/hle_bigstack.c -framework Metal -framework Foundation -framework QuartzCore -framework ImageIO -framework CoreGraphics -framework UniformTypeIdentifiers
 # Host crash.c is linked in as well: the write-protect unit tests go through the same page-fault hook as production
 t_nvn: t_nvn.c ../nvn/hle_nvn.c ../../host/crash.c $(GFX) $(GFX_H)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_nvn.c ../../host/crash.c $(GFX) $(FW)
@@ -84,12 +84,18 @@ run: t_nvn t_dirty_slots t_dirty_race t_builtin t_deswz_gpu t_pace t_refl t_hmap
 	./t_rt_depth_ro
 	./t_rt_range_shape
 	./t_rt_range_ro
-	DM_NVN_UNWRITTEN_DC=0 MTL_DEBUG_LAYER=1 ./t_rt_range
-	MTL_DEBUG_LAYER=1 ./t_rt_range   # DontCare on by default: attachment bytes use the closed-form expectation of "one depth-stencil store saved per pass"
-	DM_NVN_UNWRITTEN_DC=0 MTL_DEBUG_LAYER=1 ./t_rt_range --disabled
-	DM_NVN_UNWRITTEN_DC=0 MTL_DEBUG_LAYER=1 ./t_rt_range --small-depth
-	DM_NVN_UNWRITTEN_DC=0 MTL_DEBUG_LAYER=1 ./t_rt_range --sample-attachment --both-flags
+	DM_NVN_UNWRITTEN_DC=0 MTL_DEBUG_LAYER=1 DM_NVN_TBDR=1 ./t_rt_range
+	MTL_DEBUG_LAYER=1 DM_NVN_TBDR=1 ./t_rt_range   # DontCare on by default: attachment bytes use the closed-form expectation of "one depth-stencil store saved per pass"
+	DM_NVN_UNWRITTEN_DC=0 MTL_DEBUG_LAYER=1 DM_NVN_TBDR=1 ./t_rt_range --disabled
+	DM_NVN_UNWRITTEN_DC=0 MTL_DEBUG_LAYER=1 DM_NVN_TBDR=1 ./t_rt_range --small-depth
+	DM_NVN_UNWRITTEN_DC=0 MTL_DEBUG_LAYER=1 DM_NVN_TBDR=1 ./t_rt_range --sample-attachment --both-flags
 	./t_pso_skey
 	MTL_DEBUG_LAYER=1 ./t_pfv
 	python3 test_tbdr_budget.py
 .PHONY: run
+
+t_ios17_backend: t_ios17_backend.m ../../host/crash.c $(GFX) $(GFX_H)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_ios17_backend.m ../../host/crash.c $(filter-out ../nvn/nvn_mtl.m ../nvn/nvn_entry.S ../nvn/nvn_thunks.S,$(GFX)) $(FW)
+
+t_ios17_feedback: t_ios17_feedback.m ../../host/crash.c $(GFX) $(GFX_H)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_ios17_feedback.m ../../host/crash.c $(filter-out ../nvn/nvn_mtl.m ../nvn/nvn_entry.S ../nvn/nvn_thunks.S,$(GFX)) $(FW)

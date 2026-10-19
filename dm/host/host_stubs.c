@@ -2,6 +2,32 @@
 // the generic host still calls them, and they get empty implementations here. When a feature is redone for this game, replace the matching stub with the real thing.
 #include "dm.h"
 #include "front.h"
+#include "dm_wonder_wide.h"
+#include <stdatomic.h>
+#include <TargetConditionals.h>
+
+static _Atomic int g_wonder_wide;
+int dm_wonder_wide_capable(void) {
+    if (DM_GAME_PROGRAM_ID != 0x010015100B514000ull) return 0;
+    for (int i = 0; i < g_nmod; i++)
+        if (!strcmp(g_mod[i].name, "main"))
+            return g_mod[i].wonder_native_wide == 1 && !strcmp(g_mod[i].build_id, DM_WONDER_WIDE_BUILD);
+    return 0;
+}
+int dm_wonder_wide_active(void) { return atomic_load_explicit(&g_wonder_wide, memory_order_acquire); }
+void dm_wonder_wide_prepare(void) {
+    // Called after the preload joins and before any guest instruction/thread starts.
+    // Freeze the choice for this process: all guest threads receive identical parameters.
+    const char *want = getenv("DM_WONDER_NATIVE_WIDE"), *mode = getenv("DM_OPMODE");
+    int requested = want && !strcmp(want, "1");
+    int enabled = TARGET_OS_IPHONE && requested && mode && !strcmp(mode, "0") && dm_wonder_wide_capable();
+    atomic_store_explicit(&g_wonder_wide, enabled, memory_order_release);
+    if (DM_GAME_PROGRAM_ID == 0x010015100B514000ull) {
+        LOG("[宽屏实验] 请求=%d 启用=%d 模块=%s 改写能力=%d；%s",
+            requested, enabled, dm_main_build(), dm_wonder_wide_capable(),
+            enabled ? "内部目标1560x720；画面/剔除/HUD待实机验证" : "保留游戏原版分辨率/相机");
+    }
+}
 
 void crash_sample_self(void) {}
 void inflate_bench_maybe(void) {}

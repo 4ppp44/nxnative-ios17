@@ -47,27 +47,3 @@ int nvn_deswz_gpu_encode(id<MTLComputeCommandEncoder> enc, id<MTLBuffer> src, ui
     [enc dispatchThreadgroups:MTLSizeMake(gobs_x, gobs_y, slices) threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
     return 0;
 }
-
-int nvn_deswz_gpu_encode_m4(id<MTL4ComputeCommandEncoder> enc, id<MTL4ArgumentTable> table,
-                            id<MTLBuffer> params, size_t params_off, id<MTLBuffer> src, uint64_t src_off,
-                            const nvn_texdesc *d, unsigned level, unsigned layer,
-                            id<MTLBuffer> dst, uint64_t dst_off, size_t dst_pitch) {
-    if (!g_nvn_deswz_pipeline || !enc || !table || !params || !src || !dst || !d) return -1;
-    uint32_t row_bytes, rows, slices, bpb;
-    uint64_t base;
-    unsigned th, td;
-    if (nvn_deswizzle_geom(d, level, layer, &row_bytes, &rows, &slices, &base, &th, &td, &bpb) || dst_pitch < row_bytes) return -1;
-    struct { uint64_t src_off, dst_off, base, pitch; uint32_t row_bytes, rows, slices, th, td; } p = {
-        src_off, dst_off, base, dst_pitch, row_bytes, rows, slices, th, td
-    };
-    memcpy((uint8_t *)params.contents + params_off, &p, sizeof p);
-    [enc setArgumentTable:table];
-    [enc setComputePipelineState:g_nvn_deswz_pipeline];
-    [table setAddress:src.gpuAddress atIndex:0];
-    [table setAddress:dst.gpuAddress atIndex:1];
-    [table setAddress:params.gpuAddress + params_off atIndex:2];
-    NSUInteger gobs_x = (row_bytes + 63u) >> 6;
-    NSUInteger gobs_y = (rows + 7u) >> 3;
-    [enc dispatchThreadgroups:MTLSizeMake(gobs_x, gobs_y, slices) threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
-    return 0;
-}

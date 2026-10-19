@@ -40,7 +40,9 @@ XC = ['--msl', '--msl-version', '20300', '--msl-argument-buffers', '--msl-textur
 CAS = os.environ.get('DMSH_CAS', os.path.join(cache_root, 'cas'))
 CAS_LOCKS, CAS_LOCKS_GUARD = {}, threading.Lock()
 PRE_STATS = collections.Counter()
-MAC_RECORD = 'xcrun -sdk macosx metal -c; xcrun -sdk macosx metallib'
+# Match position arithmetic across depth and colour passes (upstream f1cc6be850cf).
+MAC_METAL = ['xcrun', '-sdk', 'macosx', 'metal', '-c', '-fpreserve-invariance']
+MAC_RECORD = ' '.join(MAC_METAL) + '; xcrun -sdk macosx metallib'
 # 贴图句柄表（贴图指令立即数句柄所在的驱动段）：马力欧（NVN 55）是 0x20 + 8 r、32 槽——全库 4888 个着色器的立即数句柄恰是 0x20..0xF0、步长 8（D2R 的旧驱动是 0x168）。
 #   本作只用合并句柄（nvnCommandBufferBindTexture），没有分离采样器；图像句柄表仍在 0x120 + 8 r（8 槽，紧接贴图表之后；agl 的 10 个计算着色器实测 0x120 / 0x128 / 0x130，与 D2R 同址）。
 # Texture handle table (the driver segment holding texture instructions' immediate handles): Mario (NVN 55) uses 0x20 + 8 r, 32 slots - the immediate handles of all 4888 shaders are exactly 0x20..0xF0 in steps of 8 (D2R's older driver used 0x168).
@@ -211,7 +213,7 @@ def fetch_finish(key, src, refl):
                 open(fmsl, 'w').write(fv)
                 fair = fmsl[:-6] + '.air'; flib = os.path.join(out, key + '_bf.metallib')
                 try:
-                    subprocess.run(['xcrun', '-sdk', 'macosx', 'metal', '-c', fmsl, '-o', fair], check=True)
+                    subprocess.run([*MAC_METAL, fmsl, '-o', fair], check=True)
                     tmp_flib = flib + '.tmp-' + str(os.getpid())
                     subprocess.run(['xcrun', '-sdk', 'macosx', 'metallib', fair, '-o', tmp_flib], check=True)
                     os.replace(tmp_flib, flib)
@@ -480,6 +482,20 @@ def vs_pad(key, src):
     k = src.find('main0_out out = {};') + len('main0_out out = {};')
     return src[:k] + ''.join(f'\n    out.dm_pad{l} = float4(0.0, 0.0, 0.0, 1.0);' for l in miss) + src[k:], miss
 
+def vs_init(src):
+    """顶点着色器的每个输出先置 (0,0,0,1)，再跑翻译出的主体：硬件上没写的分量就是这个缺省值。翻译器出的源码以 out = {} 开头，全是 0；
+    Ryujinx 连接阶段时把下一阶段读的分量这样初始化，这里逐个着色器离线翻译，不知道下一阶段读什么，就全初始化（写了的分量照样被主体覆盖）。
+    只写 xyz 的输出（世界坐标）在像素着色器里按 w 除：w 为 0 时整张阴影图的比较值成了无穷大，梦见岛户外全在阴影里（暗、篱笆不投影）。
+    Every vertex shader output starts as (0,0,0,1) before the translated body runs: on the hardware that is what an unwritten component reads. The translator's source starts with out = {}, all zeros;
+    Ryujinx initializes the components the next stage reads this way when it links stages, and since every shader is translated offline on its own without knowing what the next stage reads, all are
+    initialized (components the body writes are overwritten as before). An output written only in xyz (a world position) is divided by its w in the pixel shader: with w = 0 every shadow-map
+    compare value became infinite and Link's Awakening was in shadow everywhere outdoors (dim, no shadows from the fences)."""
+    i = src.find('struct main0_out\n{\n'); j = src.find('\n};', i); k = src.find('main0_out out = {};')
+    if i < 0 or j < 0 or k < 0: return src
+    outs = re.findall(r'\n    float4 (\w+) \[\[user\(locn\d+\)\]\];', src[i:j])
+    k += len('main0_out out = {};')
+    return src[:k] + ''.join(f'\n    out.{n} = float4(0.0, 0.0, 0.0, 1.0);' for n in outs) + src[k:]
+
 def finish(key, w, j, c1):
     name, k = loc[key]
     msl = os.path.join(w, key + '.metal'); air = msl[:-6] + '.air'; lib = os.path.join(out, key + '_b.metallib')
@@ -495,16 +511,16 @@ def finish(key, w, j, c1):
             r = subprocess.run(['spirv-cross', *XC, os.path.join(w, key + '.spv'), '--output', msl], capture_output=True, text=True)
             if r.returncode: return 'MSL 失败', r.stderr.strip()[:160], None
             src = open(msl).read()
+    if j['stage'] == 'vs':
+        src = vs_init(src); open(msl, 'w').write(src)
     pad = []
     if j['stage'] == 'vs' and PAIRS.get(key):   # 像素着色器读而顶点没写的输出补成 (0,0,0,1)（见 vs_pad） | outputs the pixel shader reads but the vertex shader does not write get (0,0,0,1) (see vs_pad)
         src, pad = vs_pad(key, src)
         if pad: open(msl, 'w').write(src)
     res = json.load(open(os.path.join(w, key + '.res.json')))
     try:
-        subprocess.run(['xcrun', '-sdk', 'macosx', 'metal', '-c', msl, '-o', air], check=True)
-        tmp_lib = lib + '.tmp-' + str(os.getpid())
-        subprocess.run(['xcrun', '-sdk', 'macosx', 'metallib', air, '-o', tmp_lib], check=True)
-        os.replace(tmp_lib, lib)
+        import metal_content_cache
+        metal_content_cache.compile(msl, air, lib, MAC_METAL, ['xcrun', '-sdk', 'macosx', 'metallib'])
     except subprocess.CalledProcessError as e:
         return 'metal 失败', str(e)[:160], None
     clone(msl, os.path.join(out, key + '_b.metal'))
@@ -593,3 +609,5 @@ for e, n in collections.Counter(f"{b['kind']} {b['msl_name'][:28]}" for x in nor
 nt = collections.Counter(nn.split('（')[0] for x in ok for nn in x['notes'])
 for e, n in nt.most_common(8): print(f'  查询无 PC 作答 {n:5d}  {e}')
 json.dump([{'key': r[0], 'st': r[1], 'err': r[2]} for r in res], open(os.path.join(out, '_b_build.json'), 'w'), ensure_ascii=False)
+
+print("Metal content cache:", __import__("metal_content_cache").stats)

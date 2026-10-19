@@ -94,6 +94,11 @@ static class SwshXlate
                 false, false, false, true /* 深度 -1..1（GL）| depth -1..1 (GL) */, false, 1f, AlphaTestOp.Always, 0f, attr, false, fout, false,
                 false /* 不做 Y 取反 | no Y flip */, true /* 原点左上 | origin upper-left */, false);
         }
+        // SPIR-V ConstOffset/ConstOffsets operands must be compile-time constants.
+        // Maxwell supplies runtime gather offsets; let Ryujinx lower those to
+        // supported coordinate/gather operations instead of emitting invalid
+        // OpConstantComposite instructions containing OpLoad results.
+        public bool QueryHostSupportsNonConstantTextureOffset() => false;
         public bool QueryHostSupportsTextureShadowLod() => true;
         public bool QueryHostSupportsDepthClipControl() => false;   // Metal 没有 -1..1 裁剪控制：让翻译器在顶点着色器里改写 z（见文件头） | Metal has no -1..1 clip control: have the translator rewrite z in the vertex shader (see the file header)
         // 作业 reduced = true：放宽精度——翻译器只给强制精确的运算打 NoContraction（缺省全部打：保持 Maxwell 分开舍入的逐位结果，代价是 MSL 里大量禁优化的 spvFMul 等）

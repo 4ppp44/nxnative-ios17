@@ -33,6 +33,7 @@ typedef struct {
     int64_t patch_off;         // patch area relative to the base; negative = before the base (image too large, see patch_nso.py FAR), and size does not include it
     uint64_t image_size, file_image_len, patch_len;   // only with the patch area before the base: whole image (with bss and key page), length of the image part of the file, patch area length
     char build_id[33];         // First 16 bytes of the NSO build ID (hex); empty for older build outputs
+    unsigned wonder_native_wide; // Capability marker from the matching offline rewriter, never a runtime code write.
     unsigned key_idx[8];
     const Elf64_Dyn *dyn;
     const Elf64_Sym *symtab;

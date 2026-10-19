@@ -24,11 +24,32 @@ DM_ROOT = os.environ.get('DM_ROOT') or os.path.expanduser('~/dm-work')   # 工�
 HERE = os.path.dirname(os.path.abspath(__file__)); GFX = os.path.dirname(HERE); HOME = os.path.expanduser('~')
 sys.path.insert(0, os.path.join(GFX, '../games')); import game as _game   # 游戏档案 | game profiles
 GAME = _game.load()
-FILES = ['tools/dmsh_chain.py', 'tools/dmsh_build.py', 'tools/dmsh_fetch.py', 'tools/dmsh_facts.py', 'tools/dmsh_xlate/Program.cs', 'tools/dmsh_xlate/dmsh_xlate.csproj', '../ios/tools/ios_metal.py', 'tools/dmsh_chain.lock']
+FILES = ['tools/dmsh_chain.py', 'tools/metal_content_cache.py', 'tools/dmsh_build.py', 'tools/dmsh_fetch.py', 'tools/dmsh_facts.py', 'tools/dmsh_xlate/Program.cs', 'tools/dmsh_xlate/dmsh_xlate.csproj', '../ios/tools/ios_metal.py', 'tools/dmsh_chain.lock']
 TABLES = ['shader_facts.tsv', 'shader_map.tsv', 'shader_map.tsv.conflicts.tsv', 'shader_pairs.tsv']   # 游戏档案目录里的 | in the game profile folder
 LOCK = os.path.join(HERE, 'dmsh_chain.lock'); HEADER = str(GAME.table('dmsh_chain.h'))
 # 翻译器缺省用仓内与锁文件一致的那份（重编出的 dll 指纹不同） | the translator defaults to the in-repo build that matches the lock file (a rebuilt dll has different fingerprints)
 XLATE_DIR = os.path.dirname(os.environ.get('XLATE', os.path.join(HERE, 'dmsh_xlate_bin/dmsh_xlate')))
+def ensure_dotnet_env(env=None):
+    e = os.environ if env is None else env
+    if 'DOTNET_ROOT' in e or 'DOTNET_ROOT_ARM64' in e:
+        return e
+    for cand in ['/opt/homebrew/opt/dotnet/libexec', '/opt/homebrew/share/dotnet', '/usr/local/share/dotnet', os.path.expanduser('~/.dotnet')]:
+        if os.path.isdir(cand):
+            e['DOTNET_ROOT'] = cand
+            return e
+    try:
+        import re, pathlib
+        s = subprocess.check_output(['dotnet', '--list-runtimes'], text=True)
+        m = re.search(r'\[([^]]+)\]', s)
+        if m:
+            cand = str(pathlib.Path(m.group(1)).parent.parent)
+            if os.path.isdir(cand):
+                e['DOTNET_ROOT'] = cand
+                return e
+    except Exception:
+        pass
+    return e
+
 
 def options():
     return 'debug=%s reduced=%s' % (os.environ.get('XLATE_DEBUG', '1') != '0', os.environ.get('XLATE_REDUCED', '1') == '1')
@@ -49,7 +70,8 @@ def tools_now():
     """实际工具指纹：翻译器 dll（含 Ryujinx 着色器库）、spirv-cross、metal 编译器（macOS / iOS） | Actual tool fingerprints: translator dll (including the Ryujinx shader library), spirv-cross, metal compiler (macOS / iOS)"""
     t = {}
     for dll in ('dmsh_xlate.dll', 'Ryujinx.Graphics.Shader.dll', 'Ryujinx.Common.dll'): t[dll] = sha16(os.path.join(XLATE_DIR, dll))
-    t['xlate_source'] = subprocess.run([os.path.join(XLATE_DIR, 'dmsh_xlate'), '--source-sha'], capture_output=True, text=True).stdout.strip()
+    dotnet_env = ensure_dotnet_env()
+    t['xlate_source'] = subprocess.run([os.path.join(XLATE_DIR, 'dmsh_xlate'), '--source-sha'], env=dotnet_env, capture_output=True, text=True).stdout.strip()
     sc = subprocess.run(['which', 'spirv-cross'], capture_output=True, text=True).stdout.strip()
     t['spirv-cross'] = sha16(sc) if sc else 'missing'
     for sdk in ('macosx', 'iphoneos'):

@@ -1,205 +1,219 @@
-# nxnative
+# nxnative (iOS 17 & Apple A16 Port)
 
 [中文说明](#中文说明)
 
-Play your own Nintendo Switch games natively on iPhone and iPad. Bring your game (its NSP files) and your `prod.keys`; one script turns them into an IPA that you sideload.
+An open-source fork of [nxnative](https://github.com/seedds/nxnative) adapted for **iOS 17.0+** and **Apple A16** devices, bringing native Nintendo Switch game execution to devices running iOS 17 without requiring Metal 4.
 
-It is not an emulator: the game's own code runs directly on the Apple chip, with Switch graphics rebuilt on Metal. Nothing from any game is in this repository, and the project is not affiliated with Nintendo or any game publisher.
+This project is built on the foundation of **[seedds/nxnative](https://github.com/seedds/nxnative)** (upstream baseline: commit `9579030e5b1f0443c12b7376559560915b6d4c4b`), which in turn builds upon **d2r-mobile**, **Ryujinx**, **Atmosphère**, **yuzu**, **LibHac**, and **SPIRV-Cross**. All upstream licenses, notices, and acknowledgments are preserved in full.
 
-## Acknowledgements
+Nothing from any game or proprietary SDK is distributed in this repository. You must provide your own legitimately dumped Nintendo Switch game files (NSPs) and your own `prod.keys`. This project is not affiliated with, endorsed by, or associated with Nintendo or any game publisher.
 
-This project is built on other people's work:
+---
 
-- **[d2r-mobile](https://github.com/jhaizhou-ops/d2r-mobile)** (MIT) developed this native-execution approach, for Diablo II: Resurrected. nxnative (first called smbw-mobile) started as a copy of its generic parts: the NSO rewriter, the host that stands in for Horizon, the NVN-on-Metal layer and the iOS app shell. Fixes go both ways.
-- **Ryujinx** (MIT): its shader translator (`Ryujinx.Graphics.Shader`, `Ryujinx.Common` and `Spv.Generator` 1.3.2, unmodified in `dm/third_party/ryujinx`) turns the games' Maxwell shaders into SPIR-V. Its emulation of the kernel and system services is also a reference when the host's behaviour is in doubt.
-- **[Atmosphère](https://github.com/Atmosphere-NX/Atmosphere)**: its kernel, mesosphère, is the reference for Horizon's synchronization semantics (address arbiter, condition variables).
-- **yuzu**: Maxwell instruction encodings for the shader reference tool, and a cross-check for kernel behaviour.
-- **[LibHac](https://github.com/Thealexbarney/LibHac)**: reads NSPs and layers updates over the base game in `dm/tools/nx_extract`. **hactool** did the first extractions.
-- **[SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross)**: SPIR-V to Metal Shading Language.
-- **deko3d** (zlib): its texture layout size algorithm is ported in `dm/gfx/nvn/nvn_tex.c`.
-- **libvpx** (VP9 movies), **stb_vorbis** (movie sound), **libdeflate**, **bcdec** and **NVIDIA FLIP** ship in `dm/third_party` with their licenses ([list](dm/third_party/README.md)).
-- **Capstone**, **lz4**, **fontTools** and **XcodeGen** are used by the build.
+## Key Differences from Upstream
 
-## Games
+1. **iOS 17 & Metal 3 Compatibility**: Upstream nxnative at the declared baseline states **Needs iOS / iPadOS 26 or later** and depends on Metal 4 primitives (command queues, argument buffers, residency sets, barriers). This fork adapts GPU and compute dispatch paths to traditional Metal 3, enabling native execution on iOS 17.0+ and Apple A16 hardware.
+2. **Startup Graphics Preparation & Binary Archive Cache**:
+   - Native startup progress panel prewarms known shaders and pipelines before guest code execution begins.
+   - Persistent pipeline caching using traditional Metal `MTLBinaryArchive`.
+   - **iOS 17 Cache Limitation**: Specialized pipelines with function constants bypass archive serialization on iOS < 18 to avoid OS-level serialization exceptions and compile on demand.
+   - **Graceful Partial Fallback**: If certain pipelines fail or are skipped during prewarming, the UI state becomes `PARTIAL` and exposes a **Continue** button, allowing players to enter the game with on-demand runtime compilation.
+   - Self-healing cache recovery detects and rebuilds corrupted archives in memory.
+3. **Ergonomic Touch Controls**:
+   - Floating virtual analog stick on the left half-screen with dynamic base positioning.
+   - Enlarged, repositioned 2D face buttons (X/A/Y/B) shifted rightward for comfortable thumb reach on modern iPhone screens, with a 6.4 pt chord overlap for simultaneous Y+B run/jump actions.
+   - Enlarged, fixed shoulder buttons (L/R/ZL/ZR) along the top screen corners.
+4. **Home Indicator Auto-Hide Preference**: Configures UIKit root view controller preferences to request fading the home indicator bar during active gameplay. The actual fade-out and reveal behavior is governed by iOS.
+5. **Startup Multi-Language Selector**: Native startup screen language picker offering 13 selectable languages plus a "Follow System" option (14 choices total), saving user preferences without altering game save files.
+6. **Decoupled RomFS Architecture**: Game RomFS data is placed in the application's `Documents/romfs` directory rather than bundled into the IPA, keeping sideloaded application packages compact (~410 MB).
+7. **Selective Upstream Sync**: Backported continuous yield backoff, texture upload slot reuse, dirty page range caching, and display pacing from upstream commits.
 
-All of these are tested on an iPhone and playable:
+---
 
-| Game | NSPs to put in the folder | IPA | Notes |
-|---|---|---|---|
-| Super Mario Bros. Wonder | base game + update 1.2.1 | ~4 GB | |
-| Fire Emblem Engage | base game + update 2.0.0 (+ Expansion Pass DLC) | ~15 GB | Upgraded to 60 fps (30 fps on Switch) |
-| Metroid Dread | base game + update 2.1.0 | ~5 GB | |
-| 13 Sentinels: Aegis Rim | base game + update 1.10 | ~5 GB | |
-| Super Mario 3D World + Bowser's Fury | base game + update 1.2.2 | ~3 GB | |
-| The Legend of Zelda: Breath of the Wild | base game + update 1.9.0 (+ DLC) | ~16 GB | Upgraded to 60 fps (30 fps on Switch) |
+## Supported Games and Hardware Status
 
-New, runs on the Mac, not yet tested on an iPhone: The Legend of Zelda: Link's Awakening (base game + update 1.1.0, ~6 GB).
+Upstream preserves profiles for seven titles in `dm/games/`:
+- **Super Mario Bros. Wonder** (Title ID: `010015100B514000`, Update 1.2.1 / package `v327680`): **Primary verified target on iOS 17 / Apple A16.**
+- *Other preserved profiles*: Fire Emblem Engage, Metroid Dread, 13 Sentinels: Aegis Rim, Super Mario 3D World + Bowser's Fury, The Legend of Zelda: Breath of the Wild, The Legend of Zelda: Link's Awakening. (Full shader chains and device runtime for other titles are preserved from upstream and remain to be validated individually on iOS 17).
 
-Needs iOS / iPadOS 26 or later. Other games aren't supported yet: for them the script writes a survey instead of an IPA.
+### Device Testing Status (Dated 2026-10-19)
+- **Device Tested**: iPhone 14 Pro Max (Apple A16 Bionic, iOS 17.0, TrollStore installation).
+- **User Test Report**: On 2026-10-19, user device testing of build `2026101906` reported no operational problems.
+- *Historical Notes*: Earlier test builds recorded an intermittent character color anomaly in World 2 and menu stretching when experimental widescreen mode was enabled; these remain documented from prior iterations with targeted retesting in 1906 pending.
+- **Toolchain Versioning & Clean Builds**: The in-repo shader translator (`dmsh_xlate.dll`) is compiled deterministically with path mapping, removing local build paths. For Super Mario Bros. Wonder, this establishes clean chain version `8112c06188b4` recorded in `dmsh_chain.h`. Building from source NSPs translates and compiles shaders directly under this clean chain. (Historical build 2026101906 test IPA was generated during development under chain `10007be80c7c`; clean from-source builds generate full matching shaders from the user's own NSPs under the public toolchain).
 
-## Pack an IPA
+---
 
-**1. Get nxnative and its tools** (once, on a Mac with [Xcode](https://apps.apple.com/app/xcode/id497799835) and [Homebrew](https://brew.sh)):
+## Build from Source
 
-```
-git clone https://github.com/seedds/nxnative.git && cd nxnative
+### Prerequisites (macOS with Xcode and Homebrew)
+
+```bash
+# 1. Install build tools
 brew install xcodegen zstd spirv-cross
 brew install --cask dotnet-sdk
+
+# 2. Install Python dependencies
 python3 -m pip install lz4 capstone fonttools
 ```
 
-**2. Put one game's NSPs in a folder**, base game and update (and any DLC):
+### Packaging an IPA
 
-```
-~/Games/MarioWonder/
-  Super Mario Bros. Wonder [010015100B514000][v0].nsp
-  Super Mario Bros. Wonder [010015100B514800][v327680].nsp
-```
+Place your dumped game NSPs (base game + update NSP) into a folder, and locate your `prod.keys`:
 
-**3. Run the script:**
+```bash
+# Clean full build straight from NSPs
+python3 scripts/build_ipa_from_nsp.py /path/to/game_nsp_folder -k /path/to/prod.keys
 
-```
-python3 scripts/build_ipa_from_nsp.py ~/Games/MarioWonder -k ~/keys/prod.keys
+# Or with custom output path and build identifier:
+scripts/build_game.sh 2026101906 /path/to/game_nsp_folder -k /path/to/prod.keys
 ```
 
-The IPA appears in the same folder (here `~/Games/MarioWonder/SMBWMobile.ipa`). The first build takes 30–60 minutes, later ones about 10. You need free disk space of about twice the NSPs' size plus 10 GB. Options such as `-o` (output path) and `--app-name` are listed by `-h`.
+### Signing and TrollStore Installation
+- **Unsigned Default**: The build script outputs an unsigned IPA by default.
+- **TrollStore Memory Entitlements**: Set `NX_TROLLSTORE=1` during packaging:
+  ```bash
+  NX_TROLLSTORE=1 python3 scripts/build_ipa_from_nsp.py /path/to/game_nsp_folder -k /path/to/prod.keys
+  ```
+  This applies a local ad-hoc code signature embedding `com.apple.developer.kernel.extended-virtual-addressing` and `com.apple.developer.kernel.increased-memory-limit` entitlements. Install via TrollStore to preserve these memory entitlements. Standard sideloading tools (AltStore, SideStore) without extended virtual memory entitlements may experience memory allocation failures.
 
-**4. Install** the IPA with your sideloading tool (AltStore, Sideloadly, LiveContainer, …). The app gets the game's name and icon.
+### Optional Configurations
+- **Widescreen 1560x720 Experiment (Opt-in, default-off)**:
+  Before tapping Start Game, select the widescreen option on the launch screen. This enables internal 1560x720 rendering and adjusts shared perspective (0x3c0184) and orthographic (0xf190c) camera projections.
+- **Texture Pack Overlay**:
+  To bundle an external texture overlay descriptor during build, export `NX_A16_PACK=/path/to/romfs_a16`. Place the folder in `Documents/romfs_a16`. To disable the overlay and revert to original textures, add `DM_A16_OVERLAY=0` to `Documents/env.txt`.
 
-## Play
+### Offline Toolchain Verification
 
-**Touch controls.** Tap **2D** / **3D** at the top to switch layouts; the app remembers your choice. 3D World and Breath of the Wild start in 3D, the other games in 2D.
+To verify the build toolchain and pipeline cache without game inputs:
+```bash
+# Verify iOS 17 arm64 cross-compilation across all 7 profiles
+python3 scripts/check_ios17_compile.py --all-profiles
 
+# Verify Metal binary archive persistence and concurrency invariants
+python3 scripts/test_pipeline_cache.py
 ```
- ZL  L3*        [−]  2D/3D  [+]        R3*  ZR
- L                                           R
-                                         X
-  ( L stick )                          Y   A
-             ✚ D-pad*   ( R stick )*     B
-                                  * 3D layout only
-```
 
-A connected game controller hides the touch controls and keeps every button.
+---
 
-- **Game language** is English by default. For Chinese, add the line `DM_LANG=zh-Hans` to `Documents/env.txt`.
-- **Saves and logs** are in the Files app, under the app's name: `save/` and `log.txt`. When something goes wrong, send `log.txt` (the previous run is `log.prev.txt`).
-- **Short stutters** the first time a new scene appears are normal: the app compiles graphics for it once and remembers them for the next launch.
-- **Reinstalling:** some sideloading tools give a reinstalled app a new data folder. Copy `save/` and `pso_user.tsv` over from the old one to keep your progress.
-- **Settings without rebuilding:** put lines like `DM_OPMODE=0` (handheld mode: lower resolution, higher frame rate) in `Documents/env.txt`.
+## Sideloading and Setup
 
-## Known issues
+1. **Install the IPA**: Install via TrollStore (recommended).
+2. **Place Game Resources**:
+   - Copy the extracted `RomFS` directory into the app's Documents folder:
+     ```
+     Documents/romfs/System/Resource
+     ```
+   - If add-on content (DLC) is present, place it into `Documents/aoc`.
+3. **Launch the App**:
+   - Open the app, choose your preferred language, and tap **Start Game**.
+   - The native preparation screen will display shader prewarming progress. Once completed, the game starts automatically.
 
-- No amiibo and no online features.
-- Fire Emblem Engage: after switching away from the app and back, some sounds may stay silent until you restart it.
-- Super Mario 3D World: a few small magenta squares can appear near the birds in World 1-1.
-
-## For developers
-
-How it works, the script's options, running games on the Mac, adding a game, and per-game notes: [docs/development.md](docs/development.md). In-depth bring-up and debugging notes: [docs/agents](docs/agents/README.md).
+---
 
 ## License
 
-MIT (see [LICENSE](LICENSE)). Third-party code keeps its own license; see [dm/third_party](dm/third_party/README.md).
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details. Original copyright (c) 2026 jhaizhou, with upstream contributions from the nxnative, d2r-mobile, and Ryujinx projects.
 
 ---
 
 # 中文说明
 
-在 iPhone 和 iPad 上原生运行你自己的 Nintendo Switch 游戏。准备好游戏（NSP 文件）和你的 `prod.keys`，一个脚本就能把它们打包成 IPA，再侧载安装。
+[nxnative](https://github.com/seedds/nxnative) 的开源分支，专为 **iOS 17.0+** 与 **Apple A16** 设备适配。无需 Metal 4 支持，即可在 iOS 17 设备上原生运行任天堂 Switch 游戏代码。
 
-这不是模拟器：游戏自己的代码直接跑在苹果芯片上，Switch 的图形在 Metal 上重建。本仓库不含任何游戏内容，项目与任天堂及各游戏发行商无关。
+本项目基于 **[seedds/nxnative](https://github.com/seedds/nxnative)**（上游基线提交：`9579030e5b1f0443c12b7376559560915b6d4c4b`），融合了 **d2r-mobile**、**Ryujinx**、**Atmosphère**、**yuzu**、**LibHac** 与 **SPIRV-Cross** 的开源成果。完整保留原作者版权声明与许可证。
 
-## 致谢
+**免责声明**：本仓库不包含任何游戏数据、密钥、固件或专有代码。用户需自行提供合法导出的 NSP 文件与 `prod.keys`。本项目与任天堂或任何游戏发行商均无任何关联。
 
-本项目建立在他人的工作之上：
+---
 
-- **[d2r-mobile](https://github.com/jhaizhou-ops/d2r-mobile)**（MIT）为《暗黑破坏神 II：狱火重生》开发了这套原生运行方法。nxnative（最初叫 smbw-mobile）从它的通用部分起步：NSO 改写器、代替 Horizon 的宿主、Metal 上的 NVN 层和 iOS 应用外壳。修正双向共享。
-- **Ryujinx**（MIT）：它的着色器翻译器（`Ryujinx.Graphics.Shader`、`Ryujinx.Common` 和 `Spv.Generator` 1.3.2，原样放在 `dm/third_party/ryujinx`）把游戏的 Maxwell 着色器转成 SPIR-V。宿主行为拿不准时，它对内核和系统服务的模拟也是参考。
-- **[Atmosphère](https://github.com/Atmosphere-NX/Atmosphere)**：它的内核 mesosphère 是 Horizon 同步语义（地址仲裁器、条件变量）的参考。
-- **yuzu**：着色器参考工具用到的 Maxwell 指令编码，以及内核行为的交叉核对。
-- **[LibHac](https://github.com/Thealexbarney/LibHac)**：在 `dm/tools/nx_extract` 里读取 NSP、把更新叠到本体上。最早的解包用的是 **hactool**。
-- **[SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross)**：SPIR-V 转 Metal 着色语言。
-- **deko3d**（zlib）：`dm/gfx/nvn/nvn_tex.c` 移植了它的贴图布局尺寸算法。
-- **libvpx**（VP9 影片）、**stb_vorbis**（影片声音）、**libdeflate**、**bcdec** 和 **NVIDIA FLIP** 连同许可证放在 `dm/third_party`（[清单](dm/third_party/README.md)）。
-- 构建时用到 **Capstone**、**lz4**、**fontTools** 和 **XcodeGen**。
+## 相比上游的核心改动
 
-## 游戏
+1. **iOS 17 与 Metal 3 兼容适配**：上游基线要求 **iOS / iPadOS 26 或更高版本**，依赖 Metal 4 特性（命令队列、参数表、驻留集与屏障指令）。本分支将图形管道与计算调度全面适配兼容至传统 Metal 3，支持在 iOS 17.0+ 及 Apple A16 硬件上原生执行。
+2. **原生图形准备界面与二进制管线缓存**：
+   - 启动前提供原生预热面板，统计已知着色器、预热进度、跳过与命中次数，完成后自动进入游戏。
+   - 采用传统 Metal `MTLBinaryArchive` 进行磁盘持久化，按 ABI、Title ID、着色器链、GPU 与系统内核进行多维分区。
+   - **iOS 17 缓存限制**：带常量的特化管线在 iOS 17 下主动绕过二进制归档直接走原生即时编译，避免引发系统底层归档异常。
+   - **平滑部分失败降级**：若部分条目预热失败或跳过（`PARTIAL`），界面亮起“继续游戏”按钮，允许玩家手动跳过进入游戏并按需编译。
+   - 支持损坏归档自动丢弃并在内存重建自愈。
+3. **针对 2D 横版优化的触控体验**：
+   - 左半屏浮动摇杆，落指即建立操作中心，底座动态跟随。
+   - 扩大并右移 ABXY 按键组（适应大屏手感），Y+B 键间保留 6.4 pt 双键连击触发区。
+   - 顶角固定大肩键（L/R/ZL/ZR），便于横屏食指触达。
+4. **全屏指示条自动隐藏偏好**：通过配置 UIKit 视图控制器偏好请求在游戏时自动隐藏主屏幕指示条，实际淡出与显示行为由 iOS 系统策略决定。
+5. **启动多语言选择**：原生启动页提供 13 种可选语言及 1 项“跟随系统”选项（共 14 项），在启动前选择并保存在应用偏好中，不修改游戏存档。
+6. **外置 RomFS 架构**：游戏核心资源存放在 `Documents/romfs`，IPA 安装包仅约 410 MB，大幅缩短侧载安装耗时。
+7. **选择性同步主线上游改动**：同步主线连续 yield 退避、上传槽复用、脏页标记缓存及帧节拍控制。
 
-以下游戏都已在 iPhone 上测试，可以正常游玩：
+---
 
-| 游戏 | 文件夹里放的 NSP | IPA 大小 | 备注 |
-|---|---|---|---|
-| 超级马力欧兄弟 惊奇 | 本体 + 1.2.1 更新 | 约 4 GB | |
-| 火焰纹章 Engage | 本体 + 2.0.0 更新（+ 扩展通行证 DLC） | 约 15 GB | 升级到 60 fps（Switch 上 30 fps） |
-| 密特罗德 生存恐惧 | 本体 + 2.1.0 更新 | 约 5 GB | |
-| 十三机兵防卫圈 | 本体 + 1.10 更新 | 约 5 GB | |
-| 超级马力欧 3D 世界 + 狂怒世界 | 本体 + 1.2.2 更新 | 约 3 GB | |
-| 塞尔达传说 旷野之息 | 本体 + 1.9.0 更新（+ DLC） | 约 16 GB | 升级到 60 fps（Switch 上 30 fps） |
+## 游戏支持与实机状态
 
-新加入、已在 Mac 上运行、还没在 iPhone 上测试：塞尔达传说 织梦岛（本体 + 1.1.0 更新，约 6 GB）。
+本仓库保留了上游在 `dm/games/` 中的七个游戏档案：
+- **《超级马力欧兄弟 惊奇》**（Title ID: `010015100B514000`，更新 1.2.1 / `v327680`）：**iOS 17 / A16 本次重点适配验证目标。**
+- *其他保留档案*：《火焰之纹章 结合》、《银河战士 生存恐惧》、《十三机兵防卫圈》、《超级马力欧 3D 世界 + 狂怒世界》、《塞尔达传说 旷野之息》、《塞尔达传说 织梦岛》（其他档案保留自上游，iOS 17 下的实机表现需逐一验证）。
 
-需要 iOS / iPadOS 26 或更高版本。其他游戏暂不支持：脚本会为它们写一份分析报告，而不是出 IPA。
+### 设备与测试状态（记录于 2026-10-19）
+- **测试机型**：iPhone 14 Pro Max（Apple A16 Bionic，iOS 17.0，TrollStore 安装）。
+- **实测反馈**：2026-10-19 用户实机测试确认候选包 `2026101906` 运行无异常。
+- *历史记录说明*：此前早期测试版本中曾记录过第二关人物偶发偏蓝及宽屏菜单横向拉伸现象，现作为历史条目保留，在 1906 上的针对性复验尚待推进。
+- **工具链版本与全量构建**：仓内着色器翻译器（`dmsh_xlate.dll`）采用确定性构建与路径重映射，全量清除了个人构建路径。针对《超级马力欧兄弟 惊奇》建立了纯净链版本 `8112c06188b4` 并登记于 `dmsh_chain.h`。公开源码构建将直接使用用户提供的 NSP 在该链下完整生成着色器。（历史测试包 2026101906 系本地开发链 `10007be80c7c` 产出；开源源码包以用户自备 NSP 全量编译为准）。
 
-## 打包 IPA
+---
 
-**1. 获取 nxnative 和所需工具**（只需一次，在装有 [Xcode](https://apps.apple.com/app/xcode/id497799835) 和 [Homebrew](https://brew.sh) 的 Mac 上）：
+## 源码构建指南
 
-```
-git clone https://github.com/seedds/nxnative.git && cd nxnative
+### 1. 准备环境（macOS，已安装 Xcode 与 Homebrew）
+
+```bash
 brew install xcodegen zstd spirv-cross
 brew install --cask dotnet-sdk
 python3 -m pip install lz4 capstone fonttools
 ```
 
-**2. 把一个游戏的 NSP 放进一个文件夹**，本体和更新（有 DLC 也放进去）：
+### 2. 打包 IPA
 
-```
-~/Games/MarioWonder/
-  Super Mario Bros. Wonder [010015100B514000][v0].nsp
-  Super Mario Bros. Wonder [010015100B514800][v327680].nsp
-```
+将游戏 NSP 文件（本体 + 更新补丁）放入文件夹，指定 `prod.keys` 路径：
 
-**3. 运行脚本：**
-
-```
-python3 scripts/build_ipa_from_nsp.py ~/Games/MarioWonder -k ~/keys/prod.keys
+```bash
+python3 scripts/build_ipa_from_nsp.py /path/to/game_nsp_folder -k /path/to/prod.keys
 ```
 
-IPA 会出现在同一个文件夹里（这里是 `~/Games/MarioWonder/SMBWMobile.ipa`）。第一次打包要 30–60 分钟，之后约 10 分钟。需要的空闲磁盘空间约为 NSP 大小的两倍再加 10 GB。`-o`（输出路径）、`--app-name` 等选项用 `-h` 查看。
+### 3. 代码签名与 TrollStore 安装说明
+- 默认出包为未签名 IPA。
+- 设置 `NX_TROLLSTORE=1` 打包将内嵌本地 ad-hoc 签名及两项内核内存权限（`extended-virtual-addressing` 与 `increased-memory-limit`），通过 TrollStore 安装可保留该权限。未授权扩展虚拟内存的第三方签名工具可能遭遇内存分配异常。
 
-**4. 安装**：用你的侧载工具（AltStore、Sideloadly、LiveContainer 等）安装 IPA。App 会带上游戏的名字和图标。
+### 4. 可选功能说明
+- **宽屏实验（默认关闭）**：启动游戏前可在启动页勾选开启 1560×720 宽屏选项，对共享透视与正交相机横向投影进行补偿。
+- **贴图补充包**：出包时可设置 `NX_A16_PACK=/path/to/romfs_a16`。若需停用补充包回退至原版贴图，在 `Documents/env.txt` 中加入 `DM_A16_OVERLAY=0`。
 
-## 游玩
+### 5. 离线工具链校验
 
-**触屏按键。** 点顶部的 **2D** / **3D** 切换布局，App 会记住你的选择。3D 世界和旷野之息默认 3D 布局，其他游戏默认 2D。
+```bash
+# 验证全部 7 个档案的 iOS 17 arm64 交叉编译
+python3 scripts/check_ios17_compile.py --all-profiles
 
+# 验证 Metal 管道二进制归档与并发守恒
+python3 scripts/test_pipeline_cache.py
 ```
- ZL  L3*        [−]  2D/3D  [+]        R3*  ZR
- L                                           R
-                                         X
-  ( 左摇杆 )                           Y   A
-             ✚ 十字键*   ( 右摇杆 )*      B
-                                  * 只在 3D 布局里
-```
 
-连上游戏手柄后，触屏按键会隐藏，手柄上的所有按键都能用。
+---
 
-- **游戏语言**默认英文。想用中文，在 `Documents/env.txt` 里加一行 `DM_LANG=zh-Hans`。
-- **存档和日志**在「文件」App 里，App 名字对应的文件夹下：`save/` 和 `log.txt`。出问题时请发 `log.txt`（上一次运行的是 `log.prev.txt`）。
-- **第一次进新场景时短暂卡顿**是正常的：App 会为它编译一次图形，下次启动就记住了。
-- **重装：** 有些侧载工具重装后会给 App 一个新的数据文件夹。把旧文件夹里的 `save/` 和 `pso_user.tsv` 拷过去，进度就不会丢。
-- **不重新打包也能改设置：** 在 `Documents/env.txt` 里写一行一个设置，例如 `DM_OPMODE=0`（掌机模式：分辨率更低、帧率更高）。
+## 安装与导入资源
 
-## 已知问题
+1. **安装 IPA**：推荐通过 TrollStore 安装。
+2. **放置游戏资源**：
+   - 将提取出的 RomFS 文件夹整体拷贝至应用的 Documents 目录下：
+     ```
+     Documents/romfs/System/Resource
+     ```
+   - 如有 DLC 资源，放置在 `Documents/aoc` 下。
+3. **启动游戏**：
+   - 打开应用，在启动页选择语言并设置选项后点击“开始游戏”，启动面板将自动进行着色器预热，完成后进入游戏。
 
-- 没有 amiibo，也没有联网功能。
-- 火焰纹章 Engage：切到别的 App 再回来后，部分声音可能一直没有，要重开游戏。
-- 超级马力欧 3D 世界：1-1 里可能出现几个小的品红色方块。
+---
 
-## 开发者
+## 开源许可证
 
-工作原理、脚本的全部选项、在 Mac 上运行游戏、添加新游戏、各游戏的技术笔记：[docs/development.md](docs/development.md)。更深入的移植和调试笔记：[docs/agents](docs/agents/README.md)。
-
-## 许可证
-
-MIT（见 [LICENSE](LICENSE)）。第三方代码保留各自的许可证，见 [dm/third_party](dm/third_party/README.md)。
+本项目基于 **MIT 许可证** 开源 — 详见 [LICENSE](LICENSE) 文件。
+原始版权所有 (c) 2026 jhaizhou，保留上游 nxnative、d2r-mobile 与 Ryujinx 项目的一切版权与致谢声明。

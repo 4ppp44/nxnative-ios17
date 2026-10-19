@@ -11,12 +11,12 @@ The README covers packing and playing. This page is for working on nxnative itse
 | Graphics (`dm/gfx`) | NVN on Metal. Shaders are extracted by `shader_split.py` from Nintendo's containers and from Unity's `Shader` objects, then translated offline. Mario: 16,266 of 16,268 shaders compile. Engage: 9,268 of 9,269 |
 | Audio | Games that carry the SDK's audio renderer (Mario) run it in-process; games that use AudioOut directly (Engage: Wwise) feed it straight. Output goes through Core Audio (default on iOS, `DM_AUDIO=1` on the Mac) |
 | Input | iOS: the touch gamepad and physical controllers. Mac: scripted input (`DM_KEYS=<seconds>:<button>,…`, with `DM_KBD=<text>` answering the system keyboard) or `DM_WINDOW=1` for a window with keyboard input |
-| iOS app | One unsigned IPA for iPhone and iPad. The rewritten code is embedded in the executable; the shader libraries, the RomFS and the game icon are inside the app |
-| Known gaps | Conditional render is always drawn; sparse virtual-pool mappings; `DrawElementsIndirect`. TBDR optimizations are off by default (they don't understand bindless textures yet). No amiibo. The bundled prewarm lists are empty. On the Mac, Mario's menu and dialogue text render blank (fine on the iPhone) |
+| iOS app | One unsigned IPA for iPhone and iPad. The rewritten code is embedded in the executable; shader libraries and the game icon are inside the app; RomFS game resources remain external in Documents/romfs |
+| Known gaps | Conditional render is always drawn; sparse virtual-pool mappings; `DrawElementsIndirect`. TBDR optimizations are off by default (they don't understand bindless textures yet). No amiibo. On the Mac, Mario's menu and dialogue text render blank (fine on the iPhone) |
 
 ## The packing script in detail
 
-`scripts/build_ipa_from_nsp.py` (`-h` lists every option):
+`scripts/build_ipa_from_nsp.py` (`-h` lists every option; outputs to `releases/` by default or custom path via `-o`):
 
 ```
 # written to the Desktop with your own home-screen name
@@ -25,7 +25,7 @@ python3 scripts/build_ipa_from_nsp.py ~/Games/MarioWonder -k ~/keys/prod.keys -o
 # pack Mario 1.0.0 instead of 1.2.1 (the folder still needs both NSPs: the shader tables cover both versions)
 python3 scripts/build_ipa_from_nsp.py ~/Games/MarioWonder -k ~/keys/prod.keys -p v0
 
-# keep the extracted game files (to run the game on the Mac, or to skip extraction next time)
+# keep the extracted game files (default in iOS 17 port: RomFS extraction is needed for external resource placement)
 python3 scripts/build_ipa_from_nsp.py ~/Games/MarioWonder -k ~/keys/prod.keys --keep-extracted
 
 # a diagnostic build with environment switches baked in (one KEY=VALUE per line)
@@ -42,6 +42,12 @@ What the script does:
 5. It builds the iOS shader libraries.
 6. It calls `build_ipa.sh`.
 
+
+## Shader translation toolchain & clean builds
+
+The in-repo shader translator `dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate.dll` is compiled deterministically with path mapping (`/p:Deterministic=true /p:PathMap`) to ensure reproducible, private-path-free builds. Its tool fingerprint in `dmsh_chain.lock` corresponds to clean chain version `8112c06188b4` for Super Mario Bros. Wonder (Title ID `010015100B514000`).
+
+When building from source NSPs, the toolchain compiles shaders matching this clean chain. Note that the historical build `2026101906` test IPA was generated during local development under toolchain identity `10007be80c7c`; clean from-source builds generate full matching shaders directly from the user's provided game NSPs under the public toolchain.
 Everything it writes stays in the NSP folder: intermediate files and logs in `<id>_build/`, the IPA next to the NSPs. The extracted game files are deleted at the end unless you pass `--keep-extracted`. It exits with 0 when done and 1 on an error. The app's bundle ID is `org.nxnative.<base game title ID>` (for example `org.nxnative.0100a6301214e000`); `--app-name` / `--bundle-id` (or `APP_NAME` / `BUNDLE_ID` in Spyder) override the name and ID.
 
 On the device, environment switches go in `Documents/env.txt` (one `KEY=VALUE` per line), and game files are also accepted at `Documents/romfs`.
@@ -151,3 +157,46 @@ Record on the game version you ship. At launch the log names each list it read a
 | `insn_census.py` | Counts the instruction sites the rewriter must handle |
 | `nso_syms.py` | Compares the SDK import surface of two games, or of one game (`-` for the reference) with the host hooks |
 | `nvn_slots_got.py` | Builds the NVN fetch table and call sites (GOT-indirect loaders) |
+
+
+## iOS 17 startup preparation and persistent pipeline binaries
+
+The native launch page runs the union of the bundled `pso_manifest.tsv` and the
+local `pso_user.tsv` before starting guest code. Progress counts unique known
+manifest rows, not every pipeline the game could ever create. Shader loading,
+render/compute creation, failed rows and unsupported recorded specializations
+are counted separately. A partial result offers Continue; missing shader inputs
+stop the startup gate. The legacy host-only background warmup remains available.
+
+Traditional `MTLBinaryArchive` caches normal render/compute GPU binaries in
+`Library/Application Support/NXPipelineCache/<profile>/<identity>/` on the phone.
+The identity includes the renderer cache ABI, shader chain and tables, rewritten
+module metadata, GPU identity and OS version/build. Compatible IPA build-number
+changes alone do not invalidate it. Successful recipe replay still creates live
+Metal objects on each process launch; PSO pointers and guest memory are not saved.
+
+On iOS 17, functions declaring constants and explicitly specialized render
+variants bypass persistent serialization. Their startup prewarming still runs.
+Apple documents device serialization of specialized functions from iOS 18/macOS
+15; the iOS 17 code does not assume that capability. Ordinary compilation is the
+fallback when an archive lookup fails, is disabled, or storage is unavailable.
+
+New runtime pipelines continue to be recorded in the local manifest, added to
+the archive and saved after a coalesced 30-second delay. Preparation flushes before
+publishing READY. Background entry requests a bounded UIKit background task for a
+final CPU/file flush and pauses preparation at row boundaries; no GPU submission
+is introduced by this cache. Writes serialize to a temporary sibling, check size,
+fsync and atomically rename. Failed writes keep the previous archive and disable
+further writes for this session. Maximum archive size is 256 MiB, with a 128 MiB
+free-space reserve beyond a full-sized temporary file. After a successful save,
+only the current and one previous hash-named archive identity are retained.
+
+`DM_PIPELINE_CACHE=off` disables binary persistence without disabling manifest
+preparation. `DM_PSO_MANIFEST=off` produces a partial startup result and allows
+explicit continuation. `DM_PIPELINE_CACHE_DIR` is an optional diagnostic root;
+host fixtures must set it explicitly. Neither setting changes saves or RomFS.
+Inspect `Pipeline preparation`, `Startup gate ready`, and `[pipeline-cache]`
+lines in `Documents/log.txt` for the real coverage and archive hit/miss results.
+A16 startup time, storage size, stutter reduction, heat and iOS 17 archive behavior
+require user device feedback. Compilation does not repair shader/texture errors,
+remove asset-streaming stalls or raise sustained GPU throughput by itself.

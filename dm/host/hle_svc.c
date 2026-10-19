@@ -8,6 +8,7 @@
 #include <sched.h>
 #include <time.h>
 #include <stdatomic.h>
+#include <mach/mach.h>
 
 // Reserve one whole block of guest address space, partitioned the Horizon way (address values are the real addresses returned by the host's mmap).
 // It only takes address space, not memory.
@@ -28,8 +29,20 @@ int dm_guest_as_contains(uintptr_t a) { uintptr_t b = (uintptr_t)g_as; return g_
 
 static void mem_init(void) {
     if (g_as) return;
+    LOG("guest AS reserve request: %#llx bytes (%.2f GiB), PROT_NONE", (unsigned long long)RESERVE, RESERVE / 1073741824.0);
     g_as = mmap(NULL, RESERVE, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
-    if (g_as == MAP_FAILED) die("reserve guest AS");
+    if (g_as == MAP_FAILED) {
+        int saved_errno = errno;
+        g_as = NULL;
+        mach_task_basic_info_data_t info = {0};
+        mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+        kern_return_t kr = task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&info, &count);
+        LOG("【红】guest AS reserve failed: errno=%d (%s), task_info=%d virtual=%llu resident=%llu page=%ld",
+            saved_errno, strerror(saved_errno), kr, (unsigned long long)info.virtual_size,
+            (unsigned long long)info.resident_size, sysconf(_SC_PAGESIZE));
+        die("reserve guest AS: request=%#llx errno=%d (%s); verify installed memory entitlements",
+            (unsigned long long)RESERVE, saved_errno, strerror(saved_errno));
+    }
     // Fixed partition (all inside the reserved block): alias 2.875 GB, stack 256 MB, heap the remaining 1.625 GB.
     // In newer SDKs the AddressRegionManager always takes 0x3fe00000 (~1 GB) at the start of the alias region as its node area (sdk 0x134728) before handing out regions; with a 512 MB alias region the very first AllocateAddressRegion fails (0x1803).
     // SMBW also defines a 1792000 KB (1.75 GB) VirtualAddressMemory in HeapDef (System/HeapSize): it is subtracted from the memory pool before the heap is opened (SetHeapSize asks for only 0x5be00000),
@@ -64,22 +77,22 @@ enum { I_CoreMask=0, I_PriorityMask=1, I_AliasAddr=2, I_AliasSize=3, I_HeapAddr=
 
 static uint8_t g_seen[256];
 
-// Registry of mapped ranges (MapMemory stacks, MapPhysicalMemory alias pages), QueryMemory reports from it; the SDK relies on it to find free space
+// Registry of mapped ranges (MapMemory stacks, MapPhysicalMemory alias pages), QueryMemory reports from it; the SDK relies on it to find free space.
+// g_map_lock is held over a whole lookup + check + change (and over QueryMemory's reads): map_find's index is only valid under it, since map_del moves the last entry into the freed slot.
+// The lock used to cover only the add and the delete, so two threads unmapping at once (stacks of exiting threads) could delete through a stale index and drop another live mapping
 #define MAX_MAP 4096
 static struct { uint64_t base, size, src; uint32_t state; } g_map[MAX_MAP];
 static int g_nmap;
 static pthread_mutex_t g_map_lock = PTHREAD_MUTEX_INITIALIZER;
-static int map_find(uint64_t a, uint64_t n) {       // returns a 1-based index, 0 = no overlap
+static int map_find(uint64_t a, uint64_t n) {       // returns a 1-based index, 0 = no overlap; caller holds g_map_lock
     for (int i = 0; i < g_nmap; i++) if (a < g_map[i].base + g_map[i].size && g_map[i].base < a + n) return i + 1;
     return 0;
 }
-static void map_add(uint64_t b, uint64_t n, uint64_t src, uint32_t st) {
-    pthread_mutex_lock(&g_map_lock);
+static void map_add(uint64_t b, uint64_t n, uint64_t src, uint32_t st) {   // caller holds g_map_lock
     if (g_nmap >= MAX_MAP) die("映射表满");
     g_map[g_nmap++] = (typeof(g_map[0])){b, n, src, st};
-    pthread_mutex_unlock(&g_map_lock);
 }
-static void map_del(int i) { pthread_mutex_lock(&g_map_lock); g_map[i] = g_map[--g_nmap]; pthread_mutex_unlock(&g_map_lock); }
+static void map_del(int i) { g_map[i] = g_map[--g_nmap]; }   // caller holds g_map_lock
 
 // One bit per 4 KB page of the alias region (mapped = 1): Map sets bits, Unmap clears them; returns the number of pages whose state really changed (signed: positive for Map, negative for Unmap)
 static int64_t alias_pages(uint64_t off, uint64_t n, int map) {
@@ -117,23 +130,27 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
     case 0x03: regs[0] = 0; return 0;   // SetMemoryAttribute
     case 0x04: {  // MapMemory(dst, src, size): when creating a thread the SDK moves the stack on the heap into the stack region
         uint64_t dst = regs[0], src = regs[1], size = regs[2];
+        pthread_mutex_lock(&g_map_lock);
         if ((uint8_t *)dst < g_stack || (uint8_t *)dst + size > g_stack + g_stack_cap || map_find(dst, size)) {
-            LOG("MapMemory 目标非法或已占用 %#llx+%#llx", dst, size); regs[0] = 0xDC01; return 0; }
+            pthread_mutex_unlock(&g_map_lock); LOG("MapMemory 目标非法或已占用 %#llx+%#llx", dst, size); regs[0] = 0xDC01; return 0; }
         // Apple pages are 16K, Horizon pages 4K: the accessible region is extended to a 16K boundary (the extra pages opened are unused pages of the same region, semantics unaffected)
         uint64_t lo = dst & ~0x3FFFull, hi = (dst + size + 0x3FFF) & ~0x3FFFull;
         if (mprotect((void *)lo, hi - lo, PROT_READ | PROT_WRITE)) die("MapMemory mprotect errno=%d", errno);
         memcpy((void *)dst, (void *)src, size);   // move semantics: the source region is not accessed while mapped (Horizon makes it inaccessible)
         map_add(dst, size, src, 0x0B /*MappedMemory*/);
+        pthread_mutex_unlock(&g_map_lock);
         if (g_flag.svc) LOG("MapMemory %#llx <- %#llx +%#llx", dst, src, size);
         regs[0] = 0; return 0;
     }
     case 0x05: {  // UnmapMemory(dst, src, size): contents are moved back to the source region; a 16K page may be shared with an adjacent mapping, permissions are not revoked
         uint64_t dst = regs[0], src = regs[1], size = regs[2];
+        pthread_mutex_lock(&g_map_lock);
         int k = map_find(dst, size);
         if (!k || g_map[k - 1].base != dst || g_map[k - 1].size != size || g_map[k - 1].src != src) {
-            LOG("UnmapMemory 与映射不符 %#llx+%#llx", dst, size); regs[0] = 0xD401; return 0; }
+            pthread_mutex_unlock(&g_map_lock); LOG("UnmapMemory 与映射不符 %#llx+%#llx", dst, size); regs[0] = 0xD401; return 0; }
         memcpy((void *)src, (void *)dst, size);
         map_del(k - 1);
+        pthread_mutex_unlock(&g_map_lock);
         regs[0] = 0; return 0;
     }
     case 0x06: {  // QueryMemory(MemoryInfo* out, PageInfo* pout, addr) → x1 = pageinfo
@@ -142,6 +159,7 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
         uint8_t *a = (uint8_t *)addr;
         uint64_t base, size, state, perm;
         int k;
+        pthread_mutex_lock(&g_map_lock);   // the registry branches read g_map; the other branches are cheap, so the lock simply spans the whole chain
         if (a >= g_heap && a < g_heap + g_heap_cur) { base=(uint64_t)g_heap; size=g_heap_cur; state=5/*Heap*/; perm=3; }
         else if ((k = map_find(addr, 1))) { base=g_map[k-1].base; size=g_map[k-1].size; state=g_map[k-1].state; perm=3; }
         else if (a >= g_as && a < g_as + RESERVE) {   // free: up to the adjacent mapping/heap boundary
@@ -177,6 +195,7 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
             if (addr < top && addr >= top - ssz) { base = top - ssz; size = ssz; state = 0xB/*Stack*/; perm = 3; }
             // Other host memory: report "free, no permissions" (the 4 KiB page around it) as Horizon does for unmapped addresses. It used to report Code+RX, and GetExceptionInfo walking back from main merged on through host memory down to 0
             else { base=addr & ~0xFFFull; size=0x1000; state=0/*Free*/; perm=0; } }
+        pthread_mutex_unlock(&g_map_lock);
         if (mi) { uint64_t *m=(uint64_t*)mi; m[0]=base; m[1]=size; ((uint32_t*)mi)[4]=state; ((uint32_t*)mi)[5]=0; ((uint32_t*)mi)[6]=perm; ((uint32_t*)mi)[7]=0; ((uint32_t*)mi)[8]=0; }
         regs[0] = 0; regs[1] = 0; return 0;
     }

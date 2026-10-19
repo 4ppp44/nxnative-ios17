@@ -6,11 +6,50 @@
 #include <stdio.h>
 #include <unistd.h>
 #include "game_profile.h"   // game profile constants (the RomFS marker path)
+#include "dm_language.h"
+#import <Metal/Metal.h>
+
+void dm_ios_language_apply(void) {
+    NSString *choice = [NSUserDefaults.standardUserDefaults stringForKey:@"NXLanguageChoice"];
+    // A prior explicit env override remains valid until the native picker is used.
+    const char *manual = getenv("DM_LANG");
+    NSString *tag = choice.length && ![choice isEqualToString:@"system"] ? choice : NSLocale.preferredLanguages.firstObject;
+    if (!choice.length && manual && *manual) tag = @(manual);
+    char code[8]; dm_language_code(tag.UTF8String,code);
+    setenv("DM_LANG",code,1);
+    fprintf(stderr,"boot: 语言 %s（%s）\n",code,choice.length ? choice.UTF8String : "system / legacy env");
+}
+
+// Applied before the game starts. Explicit env overrides remain authoritative.
+// These are game settings; they do not alter iOS device settings.
+static int g_graphics_env, g_feedback_env, g_wide_env;
+void dm_ios_graphics_apply(void) {
+    static int initialized;
+    if (!initialized++) { g_graphics_env = getenv("DM_OPMODE") != NULL; g_feedback_env = getenv("DM_NVN_FB_SNAP") != NULL; g_wide_env = getenv("DM_WONDER_NATIVE_WIDE") != NULL; }
+    NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
+    NSString *choice = [d stringForKey:@"NXGraphicsChoice"];
+    id<MTLDevice> gpu = MTLCreateSystemDefaultDevice();
+    BOOL handheld = [choice isEqualToString:@"handheld"] || (![choice isEqualToString:@"console"] && !gpu.supportsBCTextureCompression);
+    if (!g_graphics_env) setenv("DM_OPMODE",handheld ? "0" : "1",1);
+    if (DM_GAME_PROGRAM_ID == 0x010015100B514000ull) {
+        // Prototype is opt-in, and uses handheld height even if the saved mode was console.
+        if (!g_wide_env) setenv("DM_WONDER_NATIVE_WIDE",[d boolForKey:@"NXWonderNativeWide"] ? "1" : "0",1);
+        if (!g_graphics_env && getenv("DM_WONDER_NATIVE_WIDE") && !strcmp(getenv("DM_WONDER_NATIVE_WIDE"),"1"))
+            setenv("DM_OPMODE","0",1);
+    }
+    // Opt-in diagnostic isolation of scene feedback, preserving existing game defaults.
+    if (!g_feedback_env) {
+        if ([d boolForKey:@"NXSceneColorCompatibility"]) setenv("DM_NVN_FB_SNAP",DM_GAME_COMPAT_FEEDBACK_SNAP,1);
+        else unsetenv("DM_NVN_FB_SNAP");
+    }
+    fprintf(stderr,"boot: 画面模式 %s；场景颜色兼容 %s\n",getenv("DM_OPMODE") ?: "default",getenv("DM_NVN_FB_SNAP") ?: "game default");
+}
 
 int dm_main(int argc, char **argv);   // dm/host/main.c compiled in with -Dmain=dm_main
 void dm_host_preload_start(int argc, char **argv);
 UIViewController *front_ios_root(void);
 void front_ios_focus_event(int ev);
+void dm_a16_pack_prepare(NSString *doc, NSString *res, NSString *romfs);
 
 static char *g_argv[4]; static int g_argc;
 
@@ -32,6 +71,12 @@ static int boot_env(void) {
     NSString *log = [doc stringByAppendingPathComponent:@"log.txt"], *prev = [doc stringByAppendingPathComponent:@"log.prev.txt"];
     [fm removeItemAtPath:prev error:nil]; [fm moveItemAtPath:log toPath:prev error:nil];
     if (freopen(log.fileSystemRepresentation, "w", stderr)) setvbuf(stderr, NULL, _IOLBF, 0);
+    NSDictionary *info = NSBundle.mainBundle.infoDictionary;
+    fprintf(stderr, "boot: version=%s build=%s iOS=%s physical_memory=%llu signing_mode=%s\n",
+        [info[@"CFBundleShortVersionString"] UTF8String], [info[@"CFBundleVersion"] UTF8String],
+        NSProcessInfo.processInfo.operatingSystemVersionString.UTF8String,
+        (unsigned long long)NSProcessInfo.processInfo.physicalMemory,
+        [info[@"NXSigningMode"] ?: @"unsigned-external-signing" UTF8String]);
     // Environment switch files (for on-device diagnostics: a sideloaded app cannot be given environment variables from outside): one KEY=VALUE per line, # starts a comment; Documents/env.txt takes precedence over dm/env.txt in the bundle (put there by build_ipa.sh's DM_ENV_FILE)
     for (NSString *ef in @[[doc stringByAppendingPathComponent:@"env.txt"], [[res stringByAppendingPathComponent:@"dm"] stringByAppendingPathComponent:@"env.txt"]]) {
         NSString *txt = [NSString stringWithContentsOfFile:ef encoding:NSUTF8StringEncoding error:nil];
@@ -42,9 +87,12 @@ static int boot_env(void) {
             if (!getenv(k.UTF8String)) { setenv(k.UTF8String, v.UTF8String, 0); fprintf(stderr, "boot: 环境 %s=%s（%s）\n", k.UTF8String, v.UTF8String, ef.lastPathComponent.UTF8String); }
         }
     }
+    dm_ios_language_apply();
+    dm_ios_graphics_apply();
     NSString *romfs = romfs_locate();
     if (!romfs) { fprintf(stderr, "boot: 没找到游戏文件（<App>/romfs 或 Documents/romfs）\n"); return 0; }
     fprintf(stderr, "boot: 游戏文件 %s\n", romfs.fileSystemRepresentation);
+    dm_a16_pack_prepare(doc,res,romfs);
     setenv("DM_ROMFS", romfs.fileSystemRepresentation, 0);
     setenv("DM_SAVE", [doc stringByAppendingPathComponent:@"save"].fileSystemRepresentation, 0);
     setenv("DM_TEMP", [doc stringByAppendingPathComponent:@"temp"].fileSystemRepresentation, 0);
@@ -52,7 +100,7 @@ static int boot_env(void) {
     setenv("DM_NVN_SHMAP", [dm stringByAppendingPathComponent:@"shader_map.tsv"].fileSystemRepresentation, 0);
     setenv("DM_MSL_DIR", [res stringByAppendingPathComponent:@"msl"].fileSystemRepresentation, 0);
     setenv("DM_FONT_DIR", [dm stringByAppendingPathComponent:@"font"].fileSystemRepresentation, 0);   // Shared-font stand-ins (standard.ttf / nintendo_ext.ttf): iOS lacks the macOS font path
-    NSString *aoc = [res stringByAppendingPathComponent:@"aoc"];   // add-on content: build_ipa.sh puts the RomFS extracted from the player's DLC NSPs at <App>/aoc/<index>/
+    NSString *aoc = [doc stringByAppendingPathComponent:@"aoc"];   // add-on content: build_ipa.sh puts the RomFS extracted from the player's DLC NSPs at <App>/aoc/<index>/
     if ([fm fileExistsAtPath:aoc]) setenv("DM_AOC_DIR", aoc.fileSystemRepresentation, 0);
     chdir(doc.fileSystemRepresentation);
     g_argv[0] = strdup("dmhost"); g_argv[1] = strdup(dm.fileSystemRepresentation); g_argc = 2;

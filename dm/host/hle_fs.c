@@ -85,7 +85,8 @@ static Result mount_ex(const char *name, const char *dir, int ro, int txn) {
     if (g_nmnt >= MAX_MOUNT) die("挂载表满");
     strlcpy(g_mnt[g_nmnt].name, name, sizeof g_mnt[0].name);
     g_mnt[g_nmnt].ro = ro; g_mnt[g_nmnt].overlay[0] = 0; g_mnt[g_nmnt].commit[0] = 0;
-    if (!strcmp(name, "rom") && getenv("DM_ROMFS_OVERLAY"))
+    if (getenv("DM_ROMFS_OVERLAY") && (!strcmp(name, "rom") ||
+        (ro && !txn && getenv("DM_ROMFS") && !strcmp(dir,getenv("DM_ROMFS")))))
         strlcpy(g_mnt[g_nmnt].overlay, getenv("DM_ROMFS_OVERLAY"), sizeof g_mnt[0].overlay);
     // The transaction directory cannot be set up (leftovers cannot be cleared / clone failed, which really happens on a full disk): do not exit; mount the committed directory read-only -- saves still read, every write fails, commits are no-ops, the committed version is untouched, and the front end is told
     // (each of these three failures used to call die: with the phone's storage full the game exited as soon as it mounted its saves)

@@ -73,6 +73,9 @@ int main(void) {
     snprintf(fn, sizeof fn, "%s/same", rdata); put(fn, "base"); snprintf(fn, sizeof fn, "%s/same", odata); put(fn, "overlay"); snprintf(fn, sizeof fn, "%s/base", rdata); put(fn, "only-base"); snprintf(fn, sizeof fn, "%s/over", odata); put(fn, "only-overlay");
     setenv("DM_ROMFS", rom, 1); setenv("DM_ROMFS_OVERLAY", overlay, 1); CHECK(h_fs_MountRom("rom", NULL, 0) == RES_OK, "挂载 RomFS 两层 overlay");
     CHECK(read_fs("rom:/data/same", got, sizeof got) && !strcmp(got, "overlay"), "overlay 文件优先"); CHECK(read_fs("rom:/data/base", got, sizeof got) && !strcmp(got, "only-base"), "overlay 缺失时回退基底");
+    CHECK(mount("content",rom,1)==RES_OK,"同一 RomFS 的 content 别名挂载");
+    CHECK(read_fs("content:/data/same",got,sizeof got) && !strcmp(got,"overlay"),"content 别名同样读取只读补充包");
+    CHECK(read_fs("content:/data/base",got,sizeof got) && !strcmp(got,"only-base"),"content 补充包缺失时回退原资源");
     uint64_t rh; CHECK(h_fs_OpenFile(&rh, "rom:/data/same", MODE_WRITE) == RES_FAIL, "两层挂载均拒绝写入");
     {   // Find a file in the overlay (dm_overlay_file): two layers joined by a colon (old devices = in-bundle overlay + Legacy Device Pack), searched layer by layer with earlier ones taking priority; treating the whole string as one directory finds nothing
         char l2[1100], two[2300], want[1300]; snprintf(l2, sizeof l2, "%s/pack", root); mkdir(l2, 0755); snprintf(two, sizeof two, "%s:%s", overlay, l2); setenv("DM_ROMFS_OVERLAY", two, 1);

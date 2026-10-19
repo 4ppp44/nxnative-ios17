@@ -45,7 +45,7 @@ FITS(view_t, NVNtextureView);
 _Static_assert(sizeof(view_t) <= 16, "view_t 超出较新 SDK 的 NVNtextureView（16 字节）");
 
 // Sampler parameters (one copy shared by builder and object)
-typedef struct { uint8_t minf, magf, ws, wt, wr, cmp_mode, cmp_func; float lod_min, lod_max, lod_bias, aniso, border[4]; } samp_par;   // Enum values are all < 256
+typedef struct { uint8_t minf, magf, ws, wt, wr, cmp_mode, cmp_func, reduction; float lod_min, lod_max, lod_bias, aniso, border[4]; } samp_par;   // Enum values are all < 256
 typedef struct { NVNdevice *dev; samp_par p; } samp_builder_t;                                FITS(samp_builder_t, NVNsamplerBuilder);
 typedef struct { uint32_t magic; samp_par p; } samp_t;                                        FITS(samp_t, NVNsampler);
 
@@ -161,10 +161,11 @@ int mtl_has_window(void);
 int mtl_fps_target(void);                                   // target frame rate 30 / 60 (power-saving mode, DM_FPS, the game itself asking for 30)
 int mtl_warm_wait(int timeout_ms);
 int mtl_link_active(void);
-int mtl_link_wait_tick(uint64_t timeout_ns);
+int mtl_link_wait_tick(int vsyncs, uint64_t timeout_ns);   // vsyncs = the game's present interval
 double mtl_presented_time(uint64_t n);
    // Actual presentation time (seconds) of the n-th present (counted from 1); 0 = not ready, −1 = dropped
 // Texture release (at Finalize)
+void mtl_tex_init(const tex_t *t); // live serial registration (upstream 7dde056e0c2d)
 void mtl_tex_release(tex_t *t);
 void mtl_pkg_stats(uint64_t *uploads, uint64_t *reuploads);
 uint64_t mtl_pkg_miss(void);

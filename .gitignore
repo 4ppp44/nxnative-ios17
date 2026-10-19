@@ -3,3 +3,15 @@
 .iosdd_mac/
 .iosdd_*/
 .DS_Store
+
+# Local iOS17 backend regression executable
+dm/gfx/tests/t_ios17_backend
+dm/gfx/tests/*.dSYM/
+
+# Local complete-host link precheck
+dm/ios/GenLinkCheck/
+dm/ios/DmIOSLinkCheck.xcodeproj/
+dm/ios/project_linkcheck.yml
+/build/
+bin/
+obj/

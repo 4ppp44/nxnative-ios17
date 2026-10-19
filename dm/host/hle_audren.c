@@ -16,10 +16,13 @@
 #include <unistd.h>
 
 void *dm_guest_thread_spawn(void (*fn)(void *), void *arg, int prio, size_t stack_size);
+void dm_guest_thread_join(void *tt);
 void *dm_pcmout_open(int ch);
+void dm_pcmout_close(void *k);
 void dm_pcmout_start(void *k);
 int dm_pcmout_append(void *k, void *b);
 void *dm_pcmout_released(void *k);
+void dm_pcmout_wait(void *k, int ms);
 
 // P_SIZE: bytes of the game's AudioRendererParameter copied before the two fields are changed. SDK 16's struct is 0x38 bytes; SDK 8's (Link's Awakening) has one more word,
 // its revision at +0x38: copying only 0x38 left the revision uninitialized and the SDK rejected it (CheckValidRevision, Result 0x499). The SDK reads only its own size of the copy
@@ -42,6 +45,7 @@ HLE_FORCE("_ZN2nn5audio17OpenAudioRendererEPNS0_19AudioRendererHandleERKNS0_22Au
 // ---------- rendering and output ----------
 static void *g_handle[2];                    // AudioRendererHandle (renderer object, client state)
 static _Atomic int g_open;
+static void *g_render_tt;                    // the render thread (ThreadType from dm_guest_thread_spawn): Close joins it before the SDK tears the renderer down
 static int16_t g_frame[FRAME_MAX * 2]; static int g_frame_n;   // the latest frame (stereo int16)
 static _Atomic uint64_t g_frames, g_nonsilent;
 enum { CQ = 4 }; static int16_t g_cq[CQ][FRAME_MAX * 2]; static int g_cq_n[CQ]; static _Atomic uint32_t g_cq_head, g_cq_tail;   // output queue of catch-up frames
@@ -56,12 +60,13 @@ static void render_main(void *arg) {
     dm_pcmout_start(out);
     LOG("audren：渲染线程开跑（%d 块缓冲在途，节奏跟输出端）", NBUF);
     while (atomic_load(&g_open)) {
-        while (!nfree) {   // wait for the output to hand a block back (silent sink / sound card, one every 5 ms)
+        while (!nfree) {   // wait for the output to hand a block back (silent sink / sound card, one every 5 ms); it signals each release, so the thread sleeps until then (it used to poll every 1 ms)
             gbuf *b = dm_pcmout_released(out);
             if (b) { free_list[nfree++] = b; break; }
-            usleep(1000);
-            if (!atomic_load(&g_open)) return;
+            dm_pcmout_wait(out, 10);
+            if (!atomic_load(&g_open)) break;
         }
+        if (!nfree) break;
         const int16_t *src; int got;
         uint32_t h = atomic_load(&g_cq_head);
         if (h != atomic_load(&g_cq_tail)) { src = g_cq[h % CQ]; got = g_cq_n[h % CQ]; atomic_store(&g_cq_head, h + 1); }   // play queued catch-up output first
@@ -72,6 +77,7 @@ static void render_main(void *arg) {
         b->size = (uint64_t)n * 4;
         if (!dm_pcmout_append(out, b)) free_list[nfree++] = b;
     }
+    dm_pcmout_close(out);   // the output would otherwise keep its sound card callback or silent sink running and hold one of the AudioOut slots after the renderer closes
 }
 
 HLE_FORCE("_ZN2nn5audio17OpenAudioRendererEPNS0_19AudioRendererHandleEPNS_2os11SystemEventERKNS0_22AudioRendererParameterEPvm", "开渲染器（带事件）：CPU 渲染 + 手动执行，宿主起渲染线程",
@@ -86,12 +92,14 @@ HLE_FORCE("_ZN2nn5audio17OpenAudioRendererEPNS0_19AudioRendererHandleEPNS_2os11S
     if (r) { LOG("【红】audren：SDK OpenAudioRenderer 失败 %#x", r); return r; }
     if (atomic_load(&g_open)) { LOG("【红】audren：第二个渲染器（宿主只驱动一个）"); return r; }
     g_handle[0] = handle[0]; g_handle[1] = handle[1]; atomic_store(&g_open, 1);
-    dm_guest_thread_spawn(render_main, NULL, 9, 0x10000);
+    g_render_tt = dm_guest_thread_spawn(render_main, NULL, 9, 0x10000);
     return r;
 }
 HLE_FORCE("_ZN2nn5audio18CloseAudioRendererENS0_19AudioRendererHandleE", "关渲染器：先停宿主渲染线程再交 SDK", void, h_ar_Close, void *obj, void *state) {
     static void (*orig)(void *, void *); if (!orig) orig = gsym("_ZN2nn5audio18CloseAudioRendererENS0_19AudioRendererHandleE");
-    if (obj == g_handle[0]) { atomic_store(&g_open, 0); usleep(20000); }   // the render thread checks every round; wait a little over one frame
+    // Join the render thread first (it checks g_open every round and at most every 10 ms while waiting for the output): it may be inside exec(), which uses the renderer the SDK is about to free.
+    // A fixed 20 ms sleep used to stand in for this, and a renderer reopened inside that window ran a second thread over the first one's static buffers
+    if (obj == g_handle[0] && g_render_tt) { atomic_store(&g_open, 0); dm_guest_thread_join(g_render_tt); g_render_tt = NULL; }
     orig(obj, state);
 }
 

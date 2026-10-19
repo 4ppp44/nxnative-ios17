@@ -20,12 +20,16 @@
 enum { PG_NONE = 0, PG_PROT = 1, PG_BUSY = 2 };
 enum { BUSY_WAIT_MS = 2000 };
 // Tracked ranges = the memory pools (registered by MemoryPoolInitialize). After a pool is destroyed its live=0 slot is reused; the signal handler scans without locks.
-#define MAX_RANGE 4096   // was 256: with more memory pools than that the excess pools are untracked and their textures are treated as dirty and re-uploaded on every use (for Diablo's measured peak see "memory pools" in the memory readout line; Zelda has about 300 and hit this). The scan only covers slots in use, so a larger capacity costs nothing
+// The table grows in blocks of 1,024 slots, up to 262,144; a block is never moved or freed, so the signal handler reads it without locks. A pool past the end goes untracked: its textures count
+// as dirty and are re-uploaded at every use. The table was a fixed 256 slots (Zelda has about 300 pools at the title), then a fixed 4,096, and Breath of the Wild reaches 4,006 pools in its first
+// shrine. The scans only cover slots in use, so the capacity itself costs nothing
+enum { BLK_SHIFT = 10, BLK = 1 << BLK_SHIFT, NBLK = 256, MAX_RANGE = BLK * NBLK };
 // Ranges are rounded to host pages (16 KB) but guest memory pools are only 4 KB aligned: adjacent pools share their first / last pages, so one address can fall in several registered ranges.
 // So: "is this texture tracked" looks for a range that holds its whole span; a fault / host pre-write unprotects and stamps every range covering that page; pool destruction identifies its range by the pool's exact start mem.
 // (Previously the first range containing the address was always taken: two SMBW ASTC 6x5 textures whose pool's first page is shared with a small preceding pool were judged untracked and re-uploaded on every use, about 6 MB per frame)
 typedef struct { uintptr_t base, end, mem; _Atomic uint8_t *state; _Atomic uint64_t *gen; size_t cap; _Atomic int live; } range_t;
-static range_t g_r[MAX_RANGE];
+static _Atomic(range_t *) g_blk[NBLK];
+static inline range_t *rg(int i) { return &atomic_load_explicit(&g_blk[i >> BLK_SHIFT], memory_order_acquire)[i & (BLK - 1)]; }
 static _Atomic int g_nr;
 static uintptr_t g_pg, g_shift;
 static _Atomic uint64_t g_now = 1;
@@ -56,11 +60,11 @@ static int busy_wait(range_t *r, uintptr_t p) {
     }
     return 1;
 }
-static int live_at(int i) { return atomic_load_explicit(&g_r[i].live, memory_order_acquire); }
+static int live_at(int i) { return atomic_load_explicit(&rg(i)->live, memory_order_acquire); }
 // The registered range that holds all of [a, a+len) (used for a texture's tracking / protection / dirty check)
 static range_t *find_span(uintptr_t a, size_t len) {
     int n = atomic_load(&g_nr);
-    for (int i = 0; i < n; i++) if (live_at(i) && a >= g_r[i].base && a + len <= g_r[i].end) return &g_r[i];
+    for (int i = 0; i < n; i++) { range_t *r = rg(i); if (live_at(i) && a >= r->base && a + len <= r->end) return r; }
     return NULL;
 }
 static void unprotect_page(range_t *r, uintptr_t p) {   // The caller has already changed the state from PROT to BUSY
@@ -83,17 +87,33 @@ static int on_fault(void *addr, int is_write, void *uc) {
     if (!is_write) return 0;
     uintptr_t a = (uintptr_t)addr; int ours = 0, n = atomic_load(&g_nr);
     for (int i = 0; i < n; i++)   // Every range sharing the page must be released: releasing only one leaves the other range's state at "protected", and later writes no longer fault and are missed
-        if (live_at(i) && a >= g_r[i].base && a < g_r[i].end) ours |= release_page(&g_r[i], (a - g_r[i].base) >> g_shift, &g_faults);
+        { range_t *r = rg(i); if (live_at(i) && a >= r->base && a < r->end) ours |= release_page(r, (a - r->base) >> g_shift, &g_faults); }
     return ours;
+}
+// Unprotect pages p..q of a range with one mprotect per run of protected pages (a host write over a whole texture, e.g. WriteTexels, used to make one system call per 16 KB page:
+// Link's Awakening, about 275 a frame). Pages another thread is changing are handled one by one after the run so far is finished, so no BUSY page is held while waiting
+static void release_pages(range_t *r, uintptr_t p, uintptr_t q, _Atomic uint64_t *count) {
+    uintptr_t run = 0; int open = 0;
+    for (uintptr_t i = p; i <= q + 1; i++) {
+        uint8_t st = PG_PROT; int took = i <= q && atomic_compare_exchange_strong(&r->state[i], &st, PG_BUSY);
+        if (took) { if (!open) { run = i; open = 1; } continue; }
+        if (open) {
+            mp(r->base + (run << g_shift), (i - run) << g_shift, PROT_READ | PROT_WRITE);
+            for (uintptr_t k = run; k < i; k++) { atomic_store(&r->gen[k], atomic_fetch_add(&g_now, 1) + 1); atomic_store(&r->state[k], PG_NONE); }
+            if (count) atomic_fetch_add(count, i - run);
+            open = 0;
+        }
+        if (i <= q && st == PG_BUSY) release_page(r, i, count);   // another thread is changing it: wait, then unprotect it if it ended up protected
+    }
 }
 static void prep_write(void *addr, size_t len) {
     uintptr_t a = (uintptr_t)addr, e = a + len; int n = atomic_load(&g_nr);
     if (!len) return;
     for (int i = 0; i < n; i++) {
-        range_t *r = &g_r[i];
+        range_t *r = rg(i);
         if (!live_at(i) || e <= r->base || a >= r->end) continue;
         uintptr_t lo = a > r->base ? a : r->base, hi = e < r->end ? e : r->end;
-        for (uintptr_t p = (lo - r->base) >> g_shift, q = (hi - 1 - r->base) >> g_shift; p <= q; p++) release_page(r, p, &g_preps);
+        release_pages(r, (lo - r->base) >> g_shift, (hi - 1 - r->base) >> g_shift, &g_preps);
     }
 }
 
@@ -104,7 +124,7 @@ void nvn_dirty_add_range(const void *mem, size_t size) {
     pthread_mutex_lock(&g_slot_mu);
     int n = atomic_load(&g_nr);
     int slot = -1;
-    for (int i = 0; i < n; i++) if (!atomic_load_explicit(&g_r[i].live, memory_order_acquire)) { slot = i; break; }
+    for (int i = 0; i < n; i++) if (!live_at(i)) { slot = i; break; }
     if (slot < 0) {
         if (n >= MAX_RANGE) {
             int expected = 0;
@@ -112,9 +132,13 @@ void nvn_dirty_add_range(const void *mem, size_t size) {
             pthread_mutex_unlock(&g_slot_mu); return;
         }
         slot = n;
+        if (!atomic_load_explicit(&g_blk[n >> BLK_SHIFT], memory_order_acquire)) {   // published before g_nr counts the slot (the scans read g_nr first)
+            range_t *b = calloc(BLK, sizeof *b); if (!b) die("脏页跟踪区间表分配失败（第 %d 块）", n >> BLK_SHIFT);
+            atomic_store_explicit(&g_blk[n >> BLK_SHIFT], b, memory_order_release);
+        }
     }
     { int lv = atomic_fetch_add(&g_live, 1) + 1, pk = atomic_load(&g_live_peak); while (lv > pk && !atomic_compare_exchange_weak(&g_live_peak, &pk, lv)) {} }
-    range_t *r = &g_r[slot];
+    range_t *r = rg(slot);
     uintptr_t base = (uintptr_t)mem & ~(g_pg - 1), end = ((uintptr_t)mem + size + g_pg - 1) & ~(g_pg - 1);
     size_t np = (end - base) >> g_shift;
     _Atomic uint8_t *state = r->state;
@@ -136,13 +160,15 @@ void nvn_dirty_add_range(const void *mem, size_t size) {
 void nvn_dirty_remove_range(const void *mem) {
     pthread_mutex_lock(&g_slot_mu);
     range_t *r = NULL; int n = atomic_load(&g_nr);
-    for (int i = 0; i < n && !r; i++) if (live_at(i) && g_r[i].mem == (uintptr_t)mem) r = &g_r[i];   // Match by the pool's exact start: an adjacent pool sharing a page may have the same rounded base
+    for (int i = 0; i < n && !r; i++) if (live_at(i) && rg(i)->mem == (uintptr_t)mem) r = rg(i);   // Match by the pool's exact start: an adjacent pool sharing a page may have the same rounded base
     if (r) { prep_write((void *)r->base, r->end - r->base); atomic_store_explicit(&r->live, 0, memory_order_release); atomic_fetch_sub(&g_live, 1); }
     pthread_mutex_unlock(&g_slot_mu);
 }
 int nvn_dirty_tracked(const void *addr, size_t len) {
     return find_span((uintptr_t)addr, len) != NULL;
 }
+// The tracked range holding [addr, addr+len), as a handle a caller keeps (packaged textures: the scan over every range ran twice per texture lookup). NULL = untracked
+const void *nvn_dirty_span(const void *addr, size_t len) { return len ? find_span((uintptr_t)addr, len) : NULL; }
 // Set read-only: mark the pages BUSY first and mark them PROT only after mprotect has landed (for the order and the invariant see the state notes at the top of the file)
 void nvn_dirty_protect(const void *addr, size_t len) {
     range_t *r = len ? find_span((uintptr_t)addr, len) : NULL;
@@ -159,17 +185,19 @@ void nvn_dirty_protect(const void *addr, size_t len) {
     }
 }
 uint64_t nvn_dirty_now(void) { return atomic_load(&g_now); }
-int nvn_dirty_since(const void *addr, size_t len, uint64_t stamp) {
+int nvn_dirty_since_span(const void *span, const void *addr, size_t len, uint64_t stamp) {
     if (!len) return 0;
-    range_t *r = find_span((uintptr_t)addr, len);
+    range_t *r = (range_t *)span; uintptr_t a0 = (uintptr_t)addr;   // the kept handle still holds the span (a slot reused by another pool over the same memory is as good): no scan
+    if (!r || !atomic_load_explicit(&r->live, memory_order_acquire) || a0 < r->base || a0 + len > r->end) r = find_span(a0, len);
     if (!r) return 1;   // When untracked, conservatively treat as dirty: better to upload more than to show stale content
     uintptr_t a = (uintptr_t)addr, p = (a - r->base) >> g_shift, q = (a + len - 1 - r->base) >> g_shift;
     for (uintptr_t i = p; i <= q; i++) if (atomic_load(&r->gen[i]) > stamp) return 1;   // The generation of the last write before upload is <= the stamp; any later write must be > the stamp
     return 0;
 }
+int nvn_dirty_since(const void *addr, size_t len, uint64_t stamp) { return nvn_dirty_since_span(NULL, addr, len, stamp); }
 void nvn_dirty_slot_stats(int *live, int *used_slots, uint64_t *adds_total) {
     int n = atomic_load(&g_nr), active = 0;
-    for (int i = 0; i < n; i++) active += atomic_load_explicit(&g_r[i].live, memory_order_acquire) != 0;
+    for (int i = 0; i < n; i++) active += live_at(i) != 0;
     *live = active; *used_slots = n; *adds_total = atomic_load(&g_adds_total);
 }
 void nvn_dirty_stats(uint64_t *faults, uint64_t *preps) { *faults = atomic_load(&g_faults); *preps = atomic_load(&g_preps); }

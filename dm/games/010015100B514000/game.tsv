@@ -56,3 +56,6 @@ nvn_ssbo_bases	vs=0x110 ps=0x510 cs=0x310
 shader_groups	/Shader/SecredUber=SecredUber .sharcb=agl /Effect/=effect /Layout/=layout /Shader/=SecredUber
 # 映射表表头里的着色器来源说明 | description of the shader source in the map table header
 shader_note	马力欧着色器
+
+# Optional scene-feedback isolation on iOS17; not a proven fix for the reported blue character.
+compat_feedback_snap	a7e5c6fd501cf21f 22a61cb1ec732aef

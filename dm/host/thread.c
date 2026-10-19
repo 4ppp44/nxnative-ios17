@@ -1,6 +1,7 @@
 // Guest thread environment: gate slot = host gate entry; x18 slot cleared; tpidr_el0 slot = ELF TLS block; tpidrro_el0 slot = Horizon ThreadLocalRegion (0x200).
 // The SDK's internal critical section takes the current thread object pointer from TLR[0x1f8]; here each thread gets a zero-initialized object allocated and written in.
 #include "dm.h"
+#include "dm_wonder_wide.h"
 #define TLS_SIZE 8192
 #define TLR_SIZE 0x200
 #define THREAD_OBJ_SIZE 0x400
@@ -14,7 +15,16 @@ static void own_key_init(void) { if (pthread_key_create(&g_keyown, own_free)) di
 void guest_thread_init(void) {
     pthread_setspecific(g_keygate, (void *)dm_gate);
     for (int i = 0; i < 2; i++) if (g_keyres[i]) pthread_setspecific(g_keyres[i], (void *)dm_game_res(i));   // resolution parameter slot: {u32 width, u32 height} packed
-    if (g_keyaspect || g_keyaspectui) {   // aspect ratio limit parameter slot: max(19/9, output width / height of the two modes), float bit pattern in the low 32 bits
+    if (dm_wonder_wide_capable()) {
+        // Wonder's offline trampolines treat zero as "execute the original instruction".
+        // KASPECT = camera AR; KASPECTUI = the width numerator in height * numerator / 9.
+        // They are unrelated to D2R's aspect-limit/UI-pillar semantics below.
+        float aspect = (float)DM_WONDER_WIDE_WIDTH / DM_WONDER_WIDE_HEIGHT, numerator = 19.5f;
+        uint32_t ab = 0, nb = 0;
+        if (dm_wonder_wide_active()) { memcpy(&ab, &aspect, 4); memcpy(&nb, &numerator, 4); }
+        if (g_keyaspect) pthread_setspecific(g_keyaspect, (void *)(uintptr_t)ab);
+        if (g_keyaspectui) pthread_setspecific(g_keyaspectui, (void *)(uintptr_t)nb);
+    } else if (g_keyaspect || g_keyaspectui) {   // aspect ratio limit parameter slot: max(19/9, output width / height of the two modes), float bit pattern in the low 32 bits
         float a = 19.0f / 9.0f; int wide = 0;
         for (int i = 0; i < 2; i++) { uint64_t r = front_game_res(i); float w = (float)(uint32_t)r, h = (float)(uint32_t)(r >> 32); if (h > 0 && w / h > a) { a = w / h; wide = 1; } }
         // Limit of the UI side-pillar shader: when the screen is wider than 19:9 add another 0.15, pushing the pillars' inward soft edge off the screen; 16:9 is unchanged.

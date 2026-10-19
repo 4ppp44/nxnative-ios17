@@ -3,6 +3,7 @@
 #include "hle.h"
 #include <fcntl.h>
 #include <pthread.h>
+#include <pthread/qos.h>
 #include <stdatomic.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -162,7 +163,9 @@ HLE_FORCE("_ZN2nn3nfp29StartNicknameAndOwnerSettingsEPNS0_12DeviceHandleEPbPNS0_
 
 // ---------- vi: vsync event ----------
 // The game passes a SystemEventType; after binding, a host thread fires it at 60 Hz (DM_VSYNC_HZ can change it)
+void dm_host_helper_qos(qos_class_t q);   // hle_thread.c
 static void *vsync_thread(void *ev) {
+    dm_host_helper_qos(QOS_CLASS_USER_INTERACTIVE);   // the game paces frames on this event
     const char *e = getenv("DM_VSYNC_HZ"); double hz = e ? atof(e) : 60.0; if (hz <= 0) hz = 60.0;
     uint64_t period = (uint64_t)(1e9 / hz), next = now_ns() + period;
     for (;;) {
