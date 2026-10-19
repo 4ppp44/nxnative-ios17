@@ -35,11 +35,11 @@ All of these are tested on an iPhone and playable:
 | Hades | ~4&nbsp;GB | |
 | Hyrule&nbsp;Warriors:&nbsp;Age&nbsp;of&nbsp;Calamity | ~15&nbsp;GB | |
 | Fire&nbsp;Emblem:&nbsp;Three&nbsp;Houses | ~13&nbsp;GB | While packing, the script starts the game on the Mac for a few seconds to collect the shaders it builds as it runs |
+| Super&nbsp;Mario&nbsp;Galaxy | ~3&nbsp;GB | Like Three Houses, packing starts the game on the Mac for a few seconds to collect its shaders |
 
 Being ported:
 
 - The Legend of Zelda: Tears of the Kingdom (base game + update 1.4.3): runs on an iPhone into the opening cave; the frame rate is still being worked on.
-- Super Mario Galaxy (base game + update 1.3.1): plays on the Mac into the Star Festival; not yet tested on an iPhone.
 
 | | |
 |:---:|:---:|
@@ -48,8 +48,8 @@ Being ported:
 | ![Super Mario 3D World + Bowser's Fury](docs/images/super-mario-3d-world.jpg)<br>Super Mario 3D World + Bowser's Fury | ![The Legend of Zelda: Breath of the Wild](docs/images/zelda-breath-of-the-wild.jpg)<br>The Legend of Zelda: Breath of the Wild |
 | ![The Legend of Zelda: Link's Awakening](docs/images/zelda-links-awakening.jpg)<br>The Legend of Zelda: Link's Awakening | ![Super Mario Odyssey](docs/images/super-mario-odyssey.jpg)<br>Super Mario Odyssey |
 | ![Hades](docs/images/hades.jpg)<br>Hades | ![Hyrule Warriors: Age of Calamity](docs/images/hyrule-warriors-age-of-calamity.jpg)<br>Hyrule Warriors: Age of Calamity |
-| ![Fire Emblem: Three Houses](docs/images/fire-emblem-three-houses.jpg)<br>Fire Emblem: Three Houses | ![The Legend of Zelda: Tears of the Kingdom](docs/images/zelda-tears-of-the-kingdom.jpg)<br>The Legend of Zelda: Tears of the Kingdom |
-| ![Super Mario Galaxy](docs/images/super-mario-galaxy.jpg)<br>Super Mario Galaxy | |
+| ![Fire Emblem: Three Houses](docs/images/fire-emblem-three-houses.jpg)<br>Fire Emblem: Three Houses | ![Super Mario Galaxy](docs/images/super-mario-galaxy.jpg)<br>Super Mario Galaxy |
+| ![The Legend of Zelda: Tears of the Kingdom](docs/images/zelda-tears-of-the-kingdom.jpg)<br>The Legend of Zelda: Tears of the Kingdom | |
 
 Needs iOS / iPadOS 26 or later on an iPhone 15 Pro or newer (A17 Pro chip or later) or an iPad with an M1 chip or later: the games' textures are BC-compressed, and older iPhones can't read that format. Other games aren't supported yet. For them the script writes a survey and still tries its best to pack an IPA, guessing the game's settings; such an IPA may not start.
 
@@ -98,6 +98,7 @@ A connected game controller hides the touch controls and keeps every button.
 - No amiibo and no online features.
 - Fire Emblem Engage: after switching away from the app and back, some sounds may stay silent until you restart it.
 - Fire Emblem: Three Houses: small square patches on the ground where decals land.
+- Super Mario Galaxy: effects drawn as points or lines come out one pixel wide.
 
 ## For developers
 
