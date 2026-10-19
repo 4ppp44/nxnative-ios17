@@ -180,10 +180,14 @@ CUTS = {
   # 0 = 1080p docked, 2 = 720p handheld; 3 / 5 their two-view variants; 1 and 4 are 720p / 1080p modes at interval 1 that nothing selects). Measured on the Mac: 59.2 updates
   # and 29.8 presents a second. The per-mode interval table (int at main+0xd13de0, read by main+0x4b0420 for the present and by the 6-tick fade counter in main+0x4b7530;
   # float at main+0xd13e40, the per-frame scroll step in main+0x4c2b30) becomes 1 for every mode, as in modes 1 and 4: every update is shown and the render thread's
-  # own steps stay at the same speed. Resolutions stay per mode. The game itself still forces interval 2 while frame flags +0xc55f / +0xc560 are set (main+0x50fb7c)
+  # own steps stay at the same speed. Resolutions stay per mode
   '89048449ba238c8cf565518b83bf02d3': [
     (0xd13de0, '020000000100000002000000020000000100000002000000', '010000000100000001000000010000000100000001000000', 'per-render-mode present interval table {2,1,2,2,1,2} → all 1 (60 fps; the game logic already runs at 60 updates a second)', 'host-only'),
     (0xd13e40, '000000400000803f00000040000000400000803f00000040', '0000803f0000803f0000803f0000803f0000803f0000803f', 'per-render-mode interval as float {2.0,1.0,2.0,2.0,1.0,2.0} → all 1.0 (render-thread per-frame steps)', 'host-only'),
+    # The render thread still presents with interval 2 while either of two flags is set: main+0x21c9a03, a full-screen image drawn before the frame (main+0x4b4908: the opening movie),
+    # and frame +0xc55f / +0xc560 (from the object at app +0x40: the character creation screen after the movie, and so on). In the engine's own 60 fps modes this traded 60 fps for
+    # resolution in those scenes (main+0x50f7d0 drops 720p mode 1 to 1080p mode 0); here it would show them at 30 with the render thread's own steps at half speed. Both are ignored
+    (0x50fb7c, '2801082a', 'e8031f2a', 'render thread forced interval 2: orr w8,w9,w8 (either flag) → mov w8,wzr (the mode\'s interval, 1)', 'host-only'),
     # The frame limiter's wait (main+0x5be430: yield, read the tick, until 60/fps ticks of 1/59.94 s have passed since the last frame end; x8 = time passed and x23 = target, in 100 ns)
     # is a busy loop on the host: the yield back-off spins its first 2 ms on a performance core and then oversleeps by up to 250 µs, so frames took 16.8 ms (59.5 fps, a repeated
     # display frame every 2 s) and CPU energy went from 0.16 W at 30 fps to 1.5 W on the Mac. The yield becomes nn::os::SleepThread of 96% of the time left, and the loop goes back to
