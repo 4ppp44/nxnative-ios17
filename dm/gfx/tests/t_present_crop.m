@@ -17,15 +17,15 @@ uint64_t now_ns(void) { return bp_now(); }
 #define ENCODE present_encode
 #endif
 static int failed, cases;
-#define EXPECT(n, w, v) do { int a=(w),b=(v); cases++; printf("%s 期望 %d → 真结果 %d %s\n",n,a,b,a==b?"✓":"✗");failed+=a!=b; } while(0)
+#define EXPECT(n, w, v) do { int a=(w),b=(v); cases++; printf("%s expected %d → got %d %s\n",n,a,b,a==b?"✓":"✗");failed+=a!=b; } while(0)
 static const uint8_t colors[4][4]={{255,0,0,255},{0,255,0,255},{0,0,255,255},{255,255,0,255}};
 
 static void check(id<MTLTexture> src, const char *name, const int crop[4], int w, int h, int color) {
     MTLTextureDescriptor *d=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:w height:h mipmapped:NO];
     d.storageMode=MTLStorageModeShared;d.usage=MTLTextureUsageRenderTarget;
     id<MTLTexture> dst=[g_dev newTextureWithDescriptor:d];id<MTLCommandBuffer> cb=[g_q commandBuffer];
-    EXPECT("编码成功",1,ENCODE(cb,src,dst,crop));[cb commit];[cb waitUntilCompleted];
-    EXPECT("GPU完成",MTLCommandBufferStatusCompleted,cb.status);
+    EXPECT("encode succeeds",1,ENCODE(cb,src,dst,crop));[cb commit];[cb waitUntilCompleted];
+    EXPECT("GPU done",MTLCommandBufferStatusCompleted,cb.status);
     uint8_t *out=malloc(w*h*4);[dst getBytes:out bytesPerRow:w*4 fromRegion:MTLRegionMake2D(0,0,w,h) mipmapLevel:0];
     int bad=0;
     for(int y=0;y<h;y++)for(int x=0;x<w;x++) {
@@ -51,15 +51,15 @@ int main(void) { @autoreleasepool {
     for(int y=0;y<8;y++)for(int x=0;x<8;x++)memcpy(px+4*(y*8+x),colors[(x>=4)+2*(y>=4)],4);
     [src replaceRegion:MTLRegionMake2D(0,0,8,8) mipmapLevel:0 withBytes:px bytesPerRow:32];
     int zero[4]={0},tl[4]={0,0,4,4},tr[4]={4,0,4,4},bl[4]={0,4,4,4},br[4]={4,4,4,4},one[4]={3,3,1,1},inset[4]={1,1,4,4};
-    check(src,"默认整帧64像素",zero,8,8,-1);
-    check(src,"NULL默认整帧64像素",NULL,8,8,-1);
-    check(src,"左上裁切放大256像素全红",tl,16,16,0);
-    check(src,"非零x裁切放大256像素全绿",tr,16,16,1);
-    check(src,"非零y裁切放大256像素全蓝",bl,16,16,2);
-    check(src,"右下裁切贴边256像素全黄",br,16,16,3);
-    check(src,"单纹素放大不跨边界256像素全红",one,16,16,0);
-    check(src,"非零双偏移16像素逐字节等手写子矩形",inset,4,4,-2);
-    check(src,"有效区比例保留，128像素中间红/两侧黑",tl,16,8,4);
+    check(src,"default whole frame 64 pixels",zero,8,8,-1);
+    check(src,"NULL default whole frame 64 pixels",NULL,8,8,-1);
+    check(src,"top-left crop scaled up, 256 pixels all red",tl,16,16,0);
+    check(src,"non-zero x crop scaled up, 256 pixels all green",tr,16,16,1);
+    check(src,"non-zero y crop scaled up, 256 pixels all blue",bl,16,16,2);
+    check(src,"bottom-right crop at the edge, 256 pixels all yellow",br,16,16,3);
+    check(src,"single texel scaled up without crossing edges, 256 pixels all red",one,16,16,0);
+    check(src,"non-zero x and y offset, 16 pixels byte-identical to a hand-written sub-rectangle",inset,4,4,-2);
+    check(src,"aspect of the valid area kept, 128 pixels red in the middle / black on both sides",tl,16,8,4);
 #ifndef CROP_LEGACY_HEADER
     {
         // sRGB swapchain: present sends the raw bytes (as the Switch's scan-out does) without decoding first; unfixed, 128/64/200 decode to about 55/13/148
@@ -69,17 +69,17 @@ int main(void) { @autoreleasepool {
         [s8 replaceRegion:MTLRegionMake2D(0,0,8,8) mipmapLevel:0 withBytes:g bytesPerRow:32];
         MTLTextureDescriptor *od=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:8 height:8 mipmapped:NO];od.storageMode=MTLStorageModeShared;od.usage=MTLTextureUsageRenderTarget;
         id<MTLTexture> dst=[g_dev newTextureWithDescriptor:od];id<MTLCommandBuffer> cb=[g_q commandBuffer];
-        EXPECT("sRGB源编码成功",1,ENCODE(cb,s8,dst,zero));[cb commit];[cb waitUntilCompleted];
+        EXPECT("sRGB source encode succeeds",1,ENCODE(cb,s8,dst,zero));[cb commit];[cb waitUntilCompleted];
         uint8_t o[8*8*4];[dst getBytes:o bytesPerRow:32 fromRegion:MTLRegionMake2D(0,0,8,8) mipmapLevel:0];
         int bad=0;for(int i=0;i<64;i++)bad+=abs(o[4*i]-128)>1||abs(o[4*i+1]-64)>1||abs(o[4*i+2]-200)>1;
-        EXPECT("sRGB交换链出图送原始字节64像素",0,bad);
+        EXPECT("sRGB swapchain present sends raw bytes, 64 pixels",0,bad);
     }
 #endif
     int invalid[4][4]={{-1,0,4,4},{0,-1,4,4},{0,0,0,4},{7,0,4,4}};
     for(int i=0;i<4;i++) {
         MTLTextureDescriptor *dd=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:8 height:8 mipmapped:NO];dd.usage=MTLTextureUsageRenderTarget;dd.storageMode=MTLStorageModeShared;
         id<MTLTexture> dst=[g_dev newTextureWithDescriptor:dd];
-        EXPECT("无效crop不编码、不把整张拉伸冒充成功",0,ENCODE([g_q commandBuffer],src,dst,invalid[i]));
+        EXPECT("invalid crop is not encoded and does not fake success by stretching the whole image",0,ENCODE([g_q commandBuffer],src,dst,invalid[i]));
     }
     // Real QueuePresent entry: set crop and enqueue first, then immediately change the window; the present ticket must keep that frame's copy.
     PFNNVNDEVICEGETPROCADDRESSPROC get=(PFNNVNDEVICEGETPROCADDRESSPROC)h_nvnBootstrapLoader("nvnDeviceGetProcAddress");
@@ -89,11 +89,11 @@ int main(void) { @autoreleasepool {
     win_t win={.ntex=1};win.tex[0]=(NVNtexture *)&tex;set((NVNwindow *)&win,4,4,4,4);
     mtl_present_test_stall(100000000);present(NULL,(NVNwindow *)&win,0);uint64_t tk=win.ticket[0];set((NVNwindow *)&win,0,0,8,8);
 #ifdef CROP_LEGACY_HEADER
-    EXPECT("旧队列结构没有四参数副本空间（结构检查）",1,sizeof(pq_item)>=sizeof(tex_t)+sizeof(double)+sizeof(uint64_t)+sizeof br);
+    EXPECT("old queue struct has no room for a four-value copy (struct check)",1,sizeof(pq_item)>=sizeof(tex_t)+sizeof(double)+sizeof(uint64_t)+sizeof br);
 #else
     pthread_mutex_lock(&g_pq_mu);int saved=memcmp(g_pq[(tk-1)%PQ].crop,br,sizeof br)==0;pthread_mutex_unlock(&g_pq_mu);
-    EXPECT("真实QueuePresent当帧crop副本不随window变化",1,saved);
+    EXPECT("real QueuePresent: the frame's crop copy does not change with the window",1,saved);
 #endif
     mtl_present_wait(tk);mtl_present_test_stall(0);
-    printf("== %d 项，失败 %d ==\n",cases,failed);return failed!=0;
+    printf("== %d checks, %d failed ==\n",cases,failed);return failed!=0;
 } }

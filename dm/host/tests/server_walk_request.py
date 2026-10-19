@@ -16,6 +16,6 @@ for kind in [0,1,2,3,4,5,6,99]:
   want=3 if kind==0 and mode==2 else mode
   ok=ctx.get('arrived',False) and u.reg_read(UC_ARM64_REG_W2)==want and u.reg_read(UC_ARM64_REG_W9)==((want-2)&0xffffffff) and u.reg_read(UC_ARM64_REG_W8)==kind and u.reg_read(UC_ARM64_REG_X0)==G and u.reg_read(UC_ARM64_REG_X19)==UNIT and u.reg_read(UC_ARM64_REG_SP)==SP and u.reg_read(UC_ARM64_REG_NZCV)==0xa0000000
   n+=1
-  if not ok:bad+=1;print('FAIL type',kind,'request',mode,'期望规范',want,'→真',u.reg_read(UC_ARM64_REG_W2),'arrived',ctx.get('arrived',False))
-print(f'SERVER_WALK_REQUEST {n}项，失败{bad}；仅type0请求2规范为3并重算索引，其余请求/类型与W0/X19/W8/SP/NZCV保原；终点替身')
+  if not ok:bad+=1;print('FAIL type',kind,'request',mode,'expected normalized',want,'→ got',u.reg_read(UC_ARM64_REG_W2),'arrived',ctx.get('arrived',False))
+print(f'SERVER_WALK_REQUEST {n} cases, {bad} failed; only type0 request 2 is normalized to 3 and the index recomputed, other requests / types and W0/X19/W8/SP/NZCV unchanged; stand-in at the end')
 sys.exit(bool(bad))

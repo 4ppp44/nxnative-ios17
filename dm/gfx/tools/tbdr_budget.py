@@ -44,7 +44,7 @@ for l in open(log, errors='replace'):
         att_desc[p].append(r)
         tgt.setdefault(p, max(int(w) >> lv, 1) * max(int(h) >> lv, 1))
     elif k == 'B':
-        b = re.match(r'st\d+ (?:tex|tbuf) reg\d+ tid=(\d+) 实 ser=(\d+) fmt=(\d+) (\d+)x(\d+)x(\d+)', r)
+        b = re.match(r'st\d+ (?:tex|tbuf) reg\d+ tid=(\d+) real ser=(\d+) fmt=(\d+) (\d+)x(\d+)x(\d+)', r)
         if b:
             tid, ser, fmt, w, h, dd = map(int, b.groups())
             texinfo[p].setdefault(ser, set()).add((tid, fmt, w, h, dd))
@@ -54,7 +54,7 @@ for l in open(log, errors='replace'):
     elif k == 'Z':
         z = re.match(r'(c|d|s) ser=(\d+) lv(\d+) sl(\d+) (dontcare|store)', r)
         if z and z.group(5) == 'dontcare': dead.add((p, z.group(1), int(z.group(2)), int(z.group(3)), int(z.group(4))))
-    elif k == 'F' and '合并下一个通道' in r: fused.add(p)
+    elif k == 'F' and 'merge with the next pass' in r: fused.add(p)
     elif k == 'K' and ' st1 ' in f' {r} ':
         key = r.split('key=')[1].split()[0].replace('_b', ''); shader[p][nm.get(key, key[:8])] += 1; fskeys[p].add(key)
     elif k in ('D', 'd'):   # d rows (PASSDUMP_ALL) are one per draw, so draws can be counted; D rows only have the first of each pass
@@ -77,11 +77,11 @@ for p, e in P.items():
         tx = px * max([tex_slots(k_) for k_ in fskeys[p]] or [4]) * (sum(bp) / len(bp))
     rows.append((ld + st + tx, ld, st, tx, p, ' '.join(f'{slot}:{ser}' + (f'/lv{lv}' if lv else '') for slot, ser, lv, sl, b, act in e['att']), ', '.join(shader[p])[:40]))
 tl = sum(r[1] for r in rows) / 1e6; ts = sum(r[2] for r in rows) / 1e6; tt = sum(r[3] for r in rows) / 1e6
-print(f'帧 {FR}：通道 {len(rows)} 个；附件 读入 {tl:.1f} + 写回 {ts:.1f} = {tl + ts:.1f} MB（预算 {BUDGET:.0f}，超 {tl + ts - BUDGET:+.1f}）；纹理采样（粗估{"" if ALLD else "，无逐次绘制行，分类偏粗"}）{tt:.1f} MB；总带宽 {tl + ts + tt:.1f} MB')
-print('总 MB | 附件读入 | 附件写回 | 纹理采样 | 通道 | 附件 | 主要片元着色器')
+print(f'frame {FR}: {len(rows)} passes; attachments load {tl:.1f} + store {ts:.1f} = {tl + ts:.1f} MB (budget {BUDGET:.0f}, over by {tl + ts - BUDGET:+.1f}); texture sampling (rough estimate{"" if ALLD else ", no per-draw rows, coarse classification"}) {tt:.1f} MB; total bandwidth {tl + ts + tt:.1f} MB')
+print('total MB | att. load | att. store | tex. sampling | pass | attachments | main fragment shaders')
 acc = 0
 for t, ld, st, tx, p, att, sh in sorted(rows, reverse=True)[:25]:
-    acc += t; print(f'{t / 1e6:6.1f} | {ld / 1e6:5.1f} | {st / 1e6:5.1f} | {tx / 1e6:5.1f} | {p} | {att[:52]} | {sh}   （累计 {acc / 1e6:.0f}）')
+    acc += t; print(f'{t / 1e6:6.1f} | {ld / 1e6:5.1f} | {st / 1e6:5.1f} | {tx / 1e6:5.1f} | {p} | {att[:52]} | {sh}   (cumulative {acc / 1e6:.0f})')
 if TSV:
     import csv
     with open(TSV, 'w', encoding='utf-8', newline='') as out:
@@ -94,4 +94,4 @@ if TSV:
             views = [v for s_ in sampled[p] for v in texinfo[p].get(s_, ())]
             wr.writerow([FR, order, p, nd, source, model, tgt.get(p, 0), int(ld), int(st), int(tx), int(total),
                          len(sampled[p] - texinfo[p].keys()), sum(v[1] not in TBPP for v in views), len(views), ','.join(map(str, sorted(sampled[p]))), ','.join(sorted(fskeys[p])), ','.join(shader[p]), att, '; '.join(att_desc[p]),
-                         '绑定模型粗估；含tile绑定，不是外存实测' if p in fused else '绑定模型粗估，不是外存实测'])
+                         'binding-model rough estimate; includes tile binding; not a memory-traffic measurement' if p in fused else 'binding-model rough estimate; not a memory-traffic measurement'])

@@ -1,6 +1,4 @@
-# 预热种子清单（随包，与 shader_map.tsv 同目录）。行：S<TAB>着色器键<TAB>阶段 / R<TAB>渲染管线键（pso_skey 十六进制）/ C<TAB>计算着色器键。
 # Prewarm seed list (shipped in the app, next to shader_map.tsv). Rows: S<TAB>shader key<TAB>stage / R<TAB>render pipeline key (pso_skey hex) / C<TAB>compute shader key.
-# Mac 录制（DM_PSO_RECORD，预热关）：开机 → 片头 → 标题 → 读存档 → 序章战斗与战斗演出，548 条渲染管线 + 798 个着色器。行序 = 首次使用顺序，不要排序。真机按它在首帧起后台预热，免得进片头前同步编几百条管线（iPhone 实测一次 1.85 s）
 # Recorded on the Mac (DM_PSO_RECORD, prewarm off): boot → opening movie → title → save load → prologue battle and combat, 548 render pipelines + 798 shaders. Row order = first-use order; do not sort. Devices warm these up in the background from the first frame, instead of building hundreds of pipelines synchronously before the movie (1.85 s at once, measured on an iPhone)
 S	84ae0a2e9ed42909_b	0
 S	9f7ea3433bb8f0a6_b	1

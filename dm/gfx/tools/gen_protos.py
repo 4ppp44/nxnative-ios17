@@ -32,16 +32,16 @@ for n in names:
         if FP.match(t): fp += 1
         else: gp += 1
         if t == 'NVNboolean': t = 'uint32_t'
-        elif SMALL.match(t): red.append(f'{n}: <32 位参数 {t}')
+        elif SMALL.match(t): red.append(f'{n}: <32-bit argument {t}')
         conv.append(t)
-    if gp > 8 or fp > 8: red.append(f'{n}: 栈传参 gp={gp} fp={fp}')
+    if gp > 8 or fp > 8: red.append(f'{n}: arguments on the stack gp={gp} fp={fp}')
     lines.append(f'typedef {ret} (*NVNT_{n})({", ".join(conv) if conv else "void"});')
 lines.append('')
 lines.append('// Names without a prototype in the header (newer interfaces): they can only get named stubs')
 for n in missing: lines.append(f'//   {n}')
 open(out, 'w').write('\n'.join(lines) + '\n')
-print(f'原型 {len(names) - len(missing)} / 名字 {len(names)}；无原型 {len(missing)}；报红 {len(red)}')
-for r in red: print('  红', r)
+print(f'prototypes {len(names) - len(missing)} / names {len(names)}; without a prototype {len(missing)}; [RED] {len(red)}')
+for r in red: print('  [RED]', r)
 
 # Counting trampolines: one static assembly entry _nvnth_<i> per name, which atomically increments nvn_slot[i].cnt and then jumps to nvn_slot[i].fn.
 # No code is generated at runtime (iOS has no JIT); x16/x17 are intra-procedure-call scratch registers, so the trampoline may use them freely.

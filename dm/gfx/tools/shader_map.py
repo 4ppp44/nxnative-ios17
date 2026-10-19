@@ -37,16 +37,16 @@ def dm_parts(rec):
     csz = struct.unpack_from('<I', rec, 0x28)[0]        # record header: platform number 5, control segment length...
     return rec[i:i + csz], i
 
-STAGE = {'vs': '顶点', 'ps': '像素', 'cs': '计算', 'hs': '外壳', 'ds': '域'}
+STAGE = {'vs': 'vertex', 'ps': 'pixel', 'cs': 'compute', 'hs': 'hull', 'ds': 'domain'}
 cache = set(os.listdir(cache_dir))
 rows, keys, cand, dxs, locs = [], {}, {}, {}, {}
 for name in sorted(os.listdir(dm_dir)):
     A = records(open(os.path.join(pc_dir, name), 'rb').read())
     B = records(open(os.path.join(dm_dir, name), 'rb').read())
-    if len(A) != len(B): sys.exit(f'【红】{name} 记录数不等 PC {len(A)} / Switch {len(B)}')
+    if len(A) != len(B): sys.exit(f'[RED] {name}: record counts differ, PC {len(A)} / Switch {len(B)}')
     for k, (a, b) in enumerate(zip(A, B)):
         dx = pc_dxbc(a); ctl, _ = dm_parts(b)
-        if len(ctl) < 0x100: sys.exit(f'【红】{name}#{k} 控制段异常')
+        if len(ctl) < 0x100: sys.exit(f'[RED] {name}#{k}: bad control section')
         swk = hashlib.sha256(ctl).hexdigest()[:16]; pck = hashlib.sha256(dx).hexdigest()[:16]
         ml = pck + '.metallib' in cache
         dm_out = struct.unpack_from('<I', ctl, 0x734)[0] if name.startswith('ps_') else -1
@@ -87,7 +87,7 @@ if len(sys.argv) > 6:
         dm = (sb['ubo'], sb['tex'], sb['samp'], vs_inputs(code) if stg == 'vs' else set())
         cands = sorted((sum(len(a ^ b) for a, b in zip(dm, f)), h) for h, st, f in pcs if st == stg)
         if not cands or (len(cands) > 1 and cands[0][0] == cands[1][0] and cands[0][1] != cands[1][1]):
-            sys.exit(f'【红】内嵌着色器 @{o:#x}（{stg}）配不出唯一的 PC 对应：{cands}')
+            sys.exit(f'[RED] embedded shader @{o:#x} ({stg}): no unique PC counterpart: {cands}')
         pck = cands[0][1]; swk = hashlib.sha256(mi[o:o + 0x880]).hexdigest()[:16]
         ml = pck + '.metallib' in cache
         refl = json.load(open(os.path.join(cache_dir, pck + '.json')))['bindings'] if ml else []
@@ -97,14 +97,14 @@ if len(sys.argv) > 6:
         fmt = lambda x: ','.join(map(str, sorted(x))) or '-'
         rows.append(('main.rodata@%x' % o, k, STAGE.get(stg, stg), swk, pck, int(ml), -1, -1, fmt(sb['ubo']), fmt(sb['tex']), fmt(sb['samp']), fmt(sb['ssbo']), ok))
         keys.setdefault(swk, set()).add(pck)
-        print(f'  内嵌 @{o:#x} {stg} 用 cb{fmt(dm[0])} t{fmt(dm[1])} s{fmt(dm[2])} 输入{fmt(dm[3])} → PC {pck}（差异 {cands[0][0]}，次优 {cands[1][0] if len(cands) > 1 else "-"}）')
-    print(f'内嵌图形着色器 {len(gfx)} 个（metallib {sum(1 for r in rows[-len(gfx):] if r[5])} 个），内嵌计算着色器 {len(dm_ctl) - len(gfx)} 个未映射')
+        print(f'  embedded @{o:#x} {stg} uses cb{fmt(dm[0])} t{fmt(dm[1])} s{fmt(dm[2])} inputs {fmt(dm[3])} → PC {pck} (difference {cands[0][0]}, runner-up {cands[1][0] if len(cands) > 1 else "-"})')
+    print(f'embedded graphics shaders {len(gfx)} (with metallib {sum(1 for r in rows[-len(gfx):] if r[5])}), embedded compute shaders not mapped {len(dm_ctl) - len(gfx)}')
 
 amb = {k: v for k, v in keys.items() if len(v) > 1}
 with open(out, 'w') as f:
-    f.write('# kind: evidence  Switch 着色器变体 → PC DXBC → PC 链 metallib（dm/gfx/tools/shader_map.py）\n')
-    f.write('# 键冲突（同一 Switch 控制段对应多份 PC DXBC）：%d\n' % len(amb))
-    f.write('package\tindex\tstage\tdm_ctl_sha16\tpc_dxbc_sha16\tmetallib\tpc_outputs\tdm_outputs\tdm_ubo\tdm_tex\tdm_samp\tdm_ssbo\tsubset_ok(cb|t<<1|s<<2|ssbo全等<<3)\n')
+    f.write('# kind: evidence  Switch shader variants → PC DXBC → PC-chain metallib (dm/gfx/tools/shader_map.py)\n')
+    f.write('# key conflicts (one Switch control section, several PC DXBC): %d\n' % len(amb))
+    f.write('package\tindex\tstage\tdm_ctl_sha16\tpc_dxbc_sha16\tmetallib\tpc_outputs\tdm_outputs\tdm_ubo\tdm_tex\tdm_samp\tdm_ssbo\tsubset_ok(cb|t<<1|s<<2|ssbo_equal<<3)\n')
     for r in rows: f.write('\t'.join(map(str, r)) + '\n')
 
 # Key conflict resolution
@@ -117,28 +117,28 @@ def dx_chunks(d):
 def klass(pcs):
     ch = [dx_chunks(dxs[p]) for p in pcs]
     code = [c.get(b'SHEX', c.get(b'SHDR')) for c in ch]
-    if len(set(code)) == 1: return '指令块相同·仅输入签名不同（建管线时按顶点着色器输出配对选）'
-    if len({len(x) for x in code}) == 1: return '指令块等长·输入签名不同（疑为输入寄存器重编号，同按配对选）'
-    return '指令块不同（真实代码差异，Switch 编成同一二进制；需运行期定位包与序号或画面确认）'
+    if len(set(code)) == 1: return 'same instruction block, only the input signature differs (picked by the vertex shader outputs when the pipeline is built)'
+    if len({len(x) for x in code}) == 1: return 'instruction blocks of equal length, input signatures differ (probably renumbered input registers, also picked by pairing)'
+    return 'different instruction blocks (real code differences Switch compiled into one binary; needs the package and index located at run time, or a visual check)'
 def score(c):
     po, so, pcb, pt, ps_, sb = c
     diff = (po != so and po >= 0) + len(pcb ^ sb['ubo']) + len(pt ^ sb['tex']) + len(ps_ ^ sb['samp'])
     return (diff, max(po, 0) + len(pcb) + len(pt) + len(ps_))
 with open(out + '.conflicts.tsv', 'w') as f:
-    f.write('# kind: evidence  Switch 控制段键冲突的 PC 候选裁定（差异最小 → 最简 → 哈希最小）\n')
-    f.write('dm_ctl_sha16\tchosen_pc\tclass\tcandidates(pc:差异:规模)\trecords\n')
+    f.write('# kind: evidence  PC candidate rulings for Switch control section key conflicts (smallest difference → simplest → smallest hash)\n')
+    f.write('dm_ctl_sha16\tchosen_pc\tclass\tcandidates(pc:diff:size)\trecords\n')
     for k in sorted(amb):
         cs = sorted(cand[k].items(), key=lambda kv: (score(kv[1]), kv[0]))
         f.write('%s\t%s\t%s\t%s\t%s\n' % (k, cs[0][0], klass([p for p, _ in cs]), ' '.join('%s:%d:%d' % (p, *score(c)) for p, c in cs), ' '.join(locs[k])))
 
 n = len(rows); ml = sum(r[5] for r in rows)
 okc = [sum(1 for r in rows if r[12] >> b & 1) for b in range(4)]
-print(f'绑定子集成立：cb {okc[0]}/{len(rows)}，t {okc[1]}/{len(rows)}，s {okc[2]}/{len(rows)}；存储缓冲全等 {okc[3]}/{len(rows)}')
+print(f'binding subset holds: cb {okc[0]}/{len(rows)}, t {okc[1]}/{len(rows)}, s {okc[2]}/{len(rows)}; storage buffers equal {okc[3]}/{len(rows)}')
 uniq_dm = len(keys); uniq_pc = len({r[4] for r in rows}); uniq_pc_ml = len({r[4] for r in rows if r[5]})
 outd = [r for r in rows if r[6] >= 0 and r[6] != r[7]]
-print(f'记录 {n}；Switch 控制段去重 {uniq_dm}；PC DXBC 去重 {uniq_pc}；键冲突 {len(amb)}')
-print(f'有 PC metallib 的记录 {ml}/{n}；PC DXBC 去重后有 metallib {uniq_pc_ml}/{uniq_pc}')
-print(f'像素着色器输出数不同（PC 多目标、Switch 少写）{len(outd)} 条')
+print(f'records {n}; distinct Switch control sections {uniq_dm}; distinct PC DXBC {uniq_pc}; key conflicts {len(amb)}')
+print(f'records with a PC metallib {ml}/{n}; distinct PC DXBC with a metallib {uniq_pc_ml}/{uniq_pc}')
+print(f'pixel shaders whose output counts differ (PC has more targets, Switch writes fewer) {len(outd)}')
 by = {}
 for r in rows: by.setdefault(r[2], [0, 0]); by[r[2]][0] += 1; by[r[2]][1] += r[5]
-for s, (t, m) in by.items(): print(f'  {s}：记录 {t}，有 metallib {m}')
+for s, (t, m) in by.items(): print(f'  {s}: records {t}, with metallib {m}')

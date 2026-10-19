@@ -9,8 +9,8 @@ typedef struct {
     int container;          // DM_ITEM_AT_*
     int potion, scroll, book;   // Item type (the game's type membership function): potion / scroll / book
     int beltable;           // Beltable by type (the belt flag in the item type table)
-    int belt_room;          // Beltable and the belt has room right now (the same check that precedes the game's 「移到腰带」(Move to Belt) hint)
-    int equippable;         // Can be equipped right now (the same check that precedes the game's 「装备」(Equip) hint)
+    int belt_room;          // Beltable and the belt has room right now (the same check that precedes the game's "Move to Belt" hint)
+    int equippable;         // Can be equipped right now (the same check that precedes the game's "Equip" hint)
     int stack;              // Stack count of this cell in the advanced stash (gem / material / rune pages); not a stacked item = 0 (item data +0x9c, the same byte the original game checks before a long-press takes multiple items)
     int unid;               // Unidentified: bit 0x10 of item data ([item+0x10]) +0x18 is 0 (the original game's 'identified' flag; verified at both ends by flipping it in the test code dm_actions.c)
     int gx, gy, gw, gh;     // Top-left cell and cells occupied of the item in its container (inventory / stash / cube / shop / trade); for the belt gives (cell number, 0, 1, 1), for an equipment slot gives (0, 0, 1, 1)

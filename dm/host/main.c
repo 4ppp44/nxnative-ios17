@@ -7,7 +7,7 @@
 #include <unistd.h>
 void probe_install(void); void ticks_install(void); void hid_keys_init(void); void tact_prefetch_start(const char *outdir); void tact_chk_init(void); void stubs_report(void); void crash_install(void); void guest_thread_init(void); uint32_t svc_thread_main_init(void);
 typedef void (*fn0)(void); typedef void (*fn2)(uint64_t, uint64_t); typedef void (*fnp)(void *);
-static void *req(const char *n){ void *p=guest_sym(n); if(!p) die("缺符号 %s", n); return p; }
+static void *req(const char *n){ void *p=guest_sym(n); if(!p) die("missing symbol %s", n); return p; }
 
 // Game arguments: argv[0] is fixed to "game", and whatever follows "--" is appended as is (on a real device nn::init takes them from the process argument area and hands them to the SDK through SetHostArgc/Argv)
 static char *g_argv[64] = {"game"}; static int g_argc = 1;
@@ -26,9 +26,9 @@ static void guest_main(void) {
     LOG(">>> nninitInitializeSdkModule"); ((fn0)req("nninitInitializeSdkModule"))();
     LOG(">>> nninitStartup"); ((fn0)req("nninitStartup"))();
     ((fn0)req("_init_libc2"))();
-    dm_prof_mark("② SDK 初始化（nnosInitialize → nninitStartup）");
+    dm_prof_mark("② SDK init (nnosInitialize → nninitStartup)");
     run_module_inits();   // rtld callback B: each module's DT_INIT (global constructors)
-    dm_prof_mark("③ 各模块 init_array");
+    dm_prof_mark("③ module init_arrays");
     ((fnp)req("_ZN2nn2os11SetHostArgcEi"))((void *)(uint64_t)g_argc);
     ((fnp)req("_ZN2nn2os11SetHostArgvEPPc"))(g_argv);
     { void dm_guest_spawn_selftest(void); dm_guest_spawn_selftest(); }   // DM_GUEST_SPAWN_TEST self-test of host-created guest threads (hle_guestthread.c)
@@ -62,8 +62,8 @@ static void *keyrace_thread(void *unused);
 static void host_preload(int argc, char **argv) {
     g_t0_ns = proc_start_mono_ns();
     flags_init();
-    dm_prof_mark("⓪ 进程创建 → 宿主 main（dyld）");
-    if (argc < 2) die("usage: dmhost <dir> [mod...] [-- 游戏参数...]");
+    dm_prof_mark("⓪ process creation → host main (dyld)");
+    if (argc < 2) die("usage: dmhost <dir> [mod...] [-- game arguments...]");
     // Time zone: the game converts absolute time to local time along two paths, both ending in the host libc -- nn::time::ToCalendarTime (hle_time.c, localtime_r) and the guest libc's
     // localtime_r / mktime (hle_table.c wires them straight to the host). So only when the host follows the system time zone do the original game's screens (chronicle discovery time etc.) show this machine's time.
     // Only deterministic comparison (DM_FIXED_TIME) pins it to UTC: the same replay must convert to the same calendar time on this machine (UTC+8) and on the second Mac (UTC+9)
@@ -74,7 +74,7 @@ static void host_preload(int argc, char **argv) {
         g_race_want = (unsigned)strtoul(race, NULL, 10);
         if (g_race_want > 512) g_race_want = 512;
         pthread_t th;
-        if (pthread_create(&th, NULL, keyrace_thread, NULL)) die("DM_TEST_KEYRACE 起线程失败");
+        if (pthread_create(&th, NULL, keyrace_thread, NULL)) die("DM_TEST_KEYRACE cannot start its thread");
         pthread_detach(th);
     }
     { void dm_term_install(void); dm_term_install(); }   // SIGTERM graceful exit (hle_lifecycle.c)
@@ -95,8 +95,8 @@ static void host_preload(int argc, char **argv) {
     tact_prefetch_start(argv[1]);   // Background pre-decode of boot blocks (on by default: bootlist.tsv in the build output directory; DM_TACT_PREFETCH=0 turns it off)
     uint64_t tc = now_ns();
     stubs_report();
-    if (g_flag.bootprof) LOG("① 细分（装载后）：探针 / 拍门 / 按键 %.1f ms、预取启动（读清单）%.1f ms、桩报告 %.1f ms", (tb - ta) / 1e6, (tc - tb) / 1e6, (now_ns() - tc) / 1e6);
-    dm_prof_mark("① 宿主装载（读 NSO / 重定位 / 强制接管）");
+    if (g_flag.bootprof) LOG("① breakdown (after loading): probes / tick gates / keys %.1f ms, prefetch start (reading the list) %.1f ms, stub report %.1f ms", (tb - ta) / 1e6, (tc - tb) / 1e6, (now_ns() - tc) / 1e6);
+    dm_prof_mark("① host loading (read NSO / relocate / forced takeover)");
     { void loader_hash_log(void); loader_hash_log(); }   // DM_LOADHASH=1: address-independent hash of the load result (loader.c)
 }
 static struct { int argc; char **argv; pthread_t th; _Atomic int started; } g_pre;
@@ -114,16 +114,16 @@ void dm_host_preload_start(int argc, char **argv) {
     g_pre.argc = argc; g_pre.argv = calloc((size_t)argc + 1, sizeof(char *));
     for (int i = 0; i < argc; i++) g_pre.argv[i] = strdup(argv[i]);
     pthread_attr_t a; pthread_attr_init(&a); pthread_attr_setstacksize(&a, 8 << 20);
-    if (pthread_create(&g_pre.th, &a, preload_thread, NULL)) die("dm_host_preload_start：起线程失败");
+    if (pthread_create(&g_pre.th, &a, preload_thread, NULL)) die("dm_host_preload_start: cannot start the thread");
 }
 int main(int argc, char **argv) {
     if (getenv("DM_PRELOAD")) dm_host_preload_start(argc, argv);   // Exercise the early-start path on Mac (on iOS it is called from the App's main())
     if (atomic_load(&g_pre.started)) {
         pthread_join(g_pre.th, NULL);
         int same = argc == g_pre.argc; for (int i = 0; same && i < argc; i++) same = !strcmp(argv[i], g_pre.argv[i]);
-        if (!same) die("【红】dm_host_preload_start 的参数与 main 不同");
+        if (!same) die("[RED] dm_host_preload_start arguments differ from main's");
         void crash_thread_init(void); crash_thread_init();   // The signal alternate stack is per thread: loading installed it on another thread, so add it for this thread
-        LOG("宿主装载已在后台提前完成（dm_host_preload_start）");
+        LOG("host loading already finished early in the background (dm_host_preload_start)");
     } else host_preload(argc, argv);
     front_run(guest_main);
     return 0;

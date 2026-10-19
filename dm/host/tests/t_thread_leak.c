@@ -24,15 +24,15 @@ uint64_t dm_game_res(int i) { (void)i; return 0; }
 uint64_t front_game_res(int i) { (void)i; return 0; }
 
 static int fails, checks;
-#define EXPECT(name, want, got) do { long w_ = (long)(want), g_ = (long)(got); checks++; printf("%-46s 期望 %-8ld → 真结果 %-8ld %s\n", name, w_, g_, w_ == g_ ? "✓" : "✗"); if (w_ != g_) fails++; } while (0)
+#define EXPECT(name, want, got) do { long w_ = (long)(want), g_ = (long)(got); checks++; printf("%-46s expected %-8ld → got %-8ld %s\n", name, w_, g_, w_ == g_ ? "✓" : "✗"); if (w_ != g_) fails++; } while (0)
 static char g_not_heap[64];
 static void *one(void *a) { (void)a; guest_thread_init(); pthread_setspecific(g_keytls, g_not_heap); pthread_setspecific(g_keytlr, g_not_heap + 32); return NULL; }
 int main(void) {
     enum { N = 200 };
-    if (pthread_key_create(&g_key18, NULL) || pthread_key_create(&g_keytls, NULL) || pthread_key_create(&g_keytlr, NULL) || pthread_key_create(&g_keygate, NULL)) { printf("建键失败\n"); return 2; }
-    for (int i = 0; i < N; i++) { pthread_t t; if (pthread_create(&t, NULL, one, NULL)) { printf("建线程失败\n"); return 2; } pthread_join(t, NULL); }
-    EXPECT("200 条线程申请过的字节（200 × 9744）", 1948800, atomic_load(&g_total_bytes));
-    EXPECT("全部退出后还没释放的块数", 0, atomic_load(&g_live_blocks));
-    EXPECT("释放次数（每条线程 3 块）", 600, atomic_load(&g_freed_req));
-    printf("t_thread_leak：%d 项，%d 项不通\n", checks, fails); return fails != 0;
+    if (pthread_key_create(&g_key18, NULL) || pthread_key_create(&g_keytls, NULL) || pthread_key_create(&g_keytlr, NULL) || pthread_key_create(&g_keygate, NULL)) { printf("key creation failed\n"); return 2; }
+    for (int i = 0; i < N; i++) { pthread_t t; if (pthread_create(&t, NULL, one, NULL)) { printf("thread creation failed\n"); return 2; } pthread_join(t, NULL); }
+    EXPECT("bytes requested by 200 threads (200 × 9744)", 1948800, atomic_load(&g_total_bytes));
+    EXPECT("blocks still not freed after all exited", 0, atomic_load(&g_live_blocks));
+    EXPECT("free calls (3 blocks per thread)", 600, atomic_load(&g_freed_req));
+    printf("t_thread_leak: %d checks, %d failed\n", checks, fails); return fails != 0;
 }

@@ -34,5 +34,5 @@ def version(path):
 if __name__ == '__main__':
     a = sys.argv[1:]; f = version if a[:1] == ['--version'] else name
     if f is version: a = a[1:]
-    if len(a) != 1: sys.exit('用法 | usage: nacp.py [--version] <control.nacp>')
+    if len(a) != 1: sys.exit('usage: nacp.py [--version] <control.nacp>')
     n = f(a[0]); print(n); sys.exit(0 if n else 1)

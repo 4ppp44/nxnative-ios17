@@ -24,4 +24,4 @@ uint64_t dm_game_res(int docked) { return front_game_res(docked); }
 int dm_screen_real(int *w, int *h) { *w = *h = 0; return 0; }
 void dm_ui_rect(int *x, int *y, int *w, int *h) { *x = *y = *w = *h = 0; }
 // svc #0x80.. host gates: only D2R's rewrite rules create them; they should not appear in this game's build output
-uint64_t svc_host_call(int num, uint64_t *regs) { (void)regs; die("svc_host_call：本作没有宿主门 svc #%#x", num); }
+uint64_t svc_host_call(int num, uint64_t *regs) { (void)regs; die("svc_host_call: this game has no host gate svc #%#x", num); }

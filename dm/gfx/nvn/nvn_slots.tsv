@@ -1,4 +1,4 @@
-# kind: evidence  main NVN 取址槽与静态调用点（nvn_slots.py）
+# kind: evidence  main NVN fetch slots and static use sites (nvn_slots.py)
 name	slot	nuses	first_use
 nvnDeviceBuilderSetDefaults	320e910	1	173cb6c
 nvnDeviceBuilderSetFlags	320e918	1	173cb7c

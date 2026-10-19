@@ -15,6 +15,6 @@ for kind in [0,1,2,3,4,5,6,99]:
   target=0x4ac3f4 if kind==0 or sta else 0x4ac36c
   ok=ctx.get('target')==target and u.reg_read(UC_ARM64_REG_W0)==sta and u.reg_read(UC_ARM64_REG_X19)==UNIT and u.reg_read(UC_ARM64_REG_SP)==0x700f000 and u.reg_read(UC_ARM64_REG_NZCV)==0xa0000000
   n+=1
-  if not ok:bad+=1;print('FAIL type',kind,'STA',sta,'期望',hex(target),'→真',ctx)
-print(f'CLIENT_STA_GATE {n}项，失败{bad}；仅type0跳STA自动Stop，非player保持原零/非零分支，原W0/X19/SP/NZCV不改；末端为替身')
+  if not ok:bad+=1;print('FAIL type',kind,'STA',sta,'expected',hex(target),'→ got',ctx)
+print(f'CLIENT_STA_GATE {n} cases, {bad} failed; only type0 skips the STA auto Stop, non-player keeps the original zero / non-zero branch, original W0/X19/SP/NZCV unchanged; the end is a stand-in')
 sys.exit(bool(bad))

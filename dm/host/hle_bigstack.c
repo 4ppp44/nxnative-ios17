@@ -18,7 +18,7 @@ int dm_guest_as_contains(uintptr_t a);   // hle_svc.c
 static pthread_key_t g_bs_key;
 static pthread_once_t g_bs_once = PTHREAD_ONCE_INIT;
 static void bs_free(void *top) { if (top) munmap((uint8_t *)top - BS_SIZE - BS_GUARD, BS_SIZE + BS_GUARD); }
-static void bs_init(void) { if (pthread_key_create(&g_bs_key, bs_free)) die("大栈 pthread_key_create"); }
+static void bs_init(void) { if (pthread_key_create(&g_bs_key, bs_free)) die("big stack pthread_key_create"); }
 
 // sp inside the guest address block -> the top of this thread's host stack (16-byte aligned); otherwise 0 (no switch)
 uintptr_t dm_bigstack_top(uintptr_t sp);
@@ -28,7 +28,7 @@ uintptr_t dm_bigstack_top(uintptr_t sp) {
     uint8_t *top = pthread_getspecific(g_bs_key);
     if (!top) {
         uint8_t *m = mmap(NULL, BS_SIZE + BS_GUARD, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
-        if (m == MAP_FAILED) { LOG("【红】大栈映射失败，本次留在客体栈上"); return 0; }
+        if (m == MAP_FAILED) { LOG("[RED] big stack mapping failed, staying on the guest stack this time"); return 0; }
         mprotect(m, BS_GUARD, PROT_NONE);   // guard page: running off the host stack itself crashes here instead of quietly corrupting another mapping
         top = m + BS_GUARD + BS_SIZE;
         pthread_setspecific(g_bs_key, top);

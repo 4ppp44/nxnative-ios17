@@ -8,45 +8,45 @@ def ins(a): i = next(md.disasm(main[a:a + 4], a)); return f'{i.mnemonic} {i.op_s
 
 # (offset, expected disassembly, meaning of this instruction in the chain) -- the game-side protocol that cutscene "no-op playback for the real duration" (plays nothing but lasts the real duration) depends on (header comment of hle_movie.c)
 CHAIN = [
-    (0x898ed0, 'mov w1, #0x10', 'Extractor 对象 0x10 字节：剪口把状态指针存在第二个字'),
-    (0x899960, 'mov w1, #0x10', 'Decoder 对象 0x10 字节：同上'),
-    (0x899780, 'ldr x8, [x8, #0x20]', 'Setup 调 Extractor 槽4 GetTrackCount'),
-    (0x89979c, 'b.lt #0x899928', '轨数 < 1 跳过选轨（剪口给 0 轨）'),
+    (0x898ed0, 'mov w1, #0x10', 'Extractor object 0x10 bytes: the cut stores its state pointer in the second word'),
+    (0x899960, 'mov w1, #0x10', 'Decoder object 0x10 bytes: same as above'),
+    (0x899780, 'ldr x8, [x8, #0x20]', 'Setup calls Extractor slot 4 GetTrackCount'),
+    (0x89979c, 'b.lt #0x899928', 'track count < 1 skips track selection (the cut reports 0 tracks)'),
     (0x898f70, 'stp x24, x23, [x19, #0x1b8]', 'DecoderEvents[0..1] = {P+0x18, P+0x40}'),
-    (0x899044, 'mov w8, #1', 'P+0x18 的等待项种类 1 = 输入可用'),
-    (0x8990b8, 'mov w8, #2', 'P+0x40 的等待项种类 2 = 输出可用'),
-    (0x8999e4, 'ldr x8, [x8, #0x28]', 'Setup 调 Decoder 槽5 Start'),
-    (0x899f54, 'cmp w21, #0', 'Open 返回 (Start 状态 == 0)：剪口 Start 成功 ⇒ 在播'),
+    (0x899044, 'mov w8, #1', 'wait item kind at P+0x18 is 1 = input available'),
+    (0x8990b8, 'mov w8, #2', 'wait item kind at P+0x40 is 2 = output available'),
+    (0x8999e4, 'ldr x8, [x8, #0x28]', 'Setup calls Decoder slot 5 Start'),
+    (0x899f54, 'cmp w21, #0', 'Open returns (Start status == 0): Start in the cut succeeds ⇒ playing'),
     (0x899f5c, 'cset w0, eq', ''),
-    (0xbbfe40, 'bl #0x898230', '每帧更新调播放器更新'),
-    (0x89832c, 'ldrb w8, [x8, #0x489]', '帧队列空时返回 !P[+0x489]（播完标志）…'),
-    (0x898334, 'cset w0, eq', '… 未播完即视为在播'),
-    (0x8992e0, 'cmp w21, #1', '解码线程：种类 1 走输入路径'),
-    (0x8992e8, 'cmp w21, #2', '解码线程：种类 2 走输出路径'),
-    (0x899508, 'ldr x8, [x8, #0x48]', '输入：Decoder 槽9 AcquireInputBufferIndex'),
-    (0x899534, 'ldr x8, [x8, #0x50]', '输入：Decoder 槽10 GetInputBuffer'),
-    (0x8995a8, 'ldr x8, [x8, #0x50]', '输入：Extractor 槽10 Read'),
-    (0x8995b8, 'cmp w23, #2, lsl #12', 'Read 返回 0x2000 = 流尾 …'),
-    (0x8995c0, 'ldrb w8, [x19, #0x12]', '… 循环标志 …'),
-    (0x8995d4, 'ldr x8, [x8, #0x40]', '… 循环则 Extractor 槽8 SeekTo（剪口重挂定时）'),
-    (0x899620, 'mov w26, #4', '… 否则送入标志 4（流尾）'),
-    (0x899634, 'ldr x8, [x8, #0x60]', '输入：Extractor 槽12 GetSampleTime'),
-    (0x899670, 'ldr x8, [x8, #0x58]', '输入：Decoder 槽11 SendInputBufferForDecode'),
-    (0x89968c, 'ldr x8, [x8, #0x58]', '输入：Extractor 槽11 Advance'),
-    (0x89932c, 'ldr x8, [x8, #0x60]', '输出：Decoder 槽12 AcquireOutputBufferIndex'),
-    (0x899338, 'tst w0, #0xffffdfff', '状态 0 / 0x2000 才入帧队列（剪口无输出回 0x1008）'),
-    (0x899cb4, 'cmp x9, #2', '丢帧只在队列 ≥2 时（单个流尾项不会被丢）'),
-    (0x89a650, 'ldr x8, [x8, #0x90]', '取帧：Decoder 槽18 GetOutputBufferFormat（剪口回非 0）'),
-    (0x89a65c, 'cmp w27, #4', '标志 4 …'),
-    (0x89a670, 'strb w8, [x25, #0x489]', '… 置播完 ⇒ 游戏走正常播完路径'),
-    (0x899fdc, 'ldr x8, [x8, #0x30]', '收尾调 Decoder 槽6 Stop（剪口撤销定时）'),
-    (0x899ff0, 'ldr x8, [x8, #8]', '收尾调 Decoder 槽1 删除析构'),
-    (0x89a004, 'ldr x8, [x8, #8]', '收尾调 Extractor 槽1 删除析构'),
+    (0xbbfe40, 'bl #0x898230', 'the per-frame update calls the player update'),
+    (0x89832c, 'ldrb w8, [x8, #0x489]', 'with the frame queue empty returns !P[+0x489] (finished flag) …'),
+    (0x898334, 'cset w0, eq', '… not finished counts as playing'),
+    (0x8992e0, 'cmp w21, #1', 'decoder thread: kind 1 takes the input path'),
+    (0x8992e8, 'cmp w21, #2', 'decoder thread: kind 2 takes the output path'),
+    (0x899508, 'ldr x8, [x8, #0x48]', 'input: Decoder slot 9 AcquireInputBufferIndex'),
+    (0x899534, 'ldr x8, [x8, #0x50]', 'input: Decoder slot 10 GetInputBuffer'),
+    (0x8995a8, 'ldr x8, [x8, #0x50]', 'input: Extractor slot 10 Read'),
+    (0x8995b8, 'cmp w23, #2, lsl #12', 'Read returning 0x2000 = end of stream …'),
+    (0x8995c0, 'ldrb w8, [x19, #0x12]', '… loop flag …'),
+    (0x8995d4, 'ldr x8, [x8, #0x40]', '… if looping, Extractor slot 8 SeekTo (the cut re-arms its timer)'),
+    (0x899620, 'mov w26, #4', '… otherwise sends flag 4 (end of stream)'),
+    (0x899634, 'ldr x8, [x8, #0x60]', 'input: Extractor slot 12 GetSampleTime'),
+    (0x899670, 'ldr x8, [x8, #0x58]', 'input: Decoder slot 11 SendInputBufferForDecode'),
+    (0x89968c, 'ldr x8, [x8, #0x58]', 'input: Extractor slot 11 Advance'),
+    (0x89932c, 'ldr x8, [x8, #0x60]', 'output: Decoder slot 12 AcquireOutputBufferIndex'),
+    (0x899338, 'tst w0, #0xffffdfff', 'only status 0 / 0x2000 enters the frame queue (the cut returns 0x1008 with no output)'),
+    (0x899cb4, 'cmp x9, #2', 'frames are dropped only with a queue ≥2 (a single end-of-stream item is never dropped)'),
+    (0x89a650, 'ldr x8, [x8, #0x90]', 'frame fetch: Decoder slot 18 GetOutputBufferFormat (the cut returns non-zero)'),
+    (0x89a65c, 'cmp w27, #4', 'flag 4 …'),
+    (0x89a670, 'strb w8, [x25, #0x489]', '… sets finished ⇒ the game takes the normal finished path'),
+    (0x899fdc, 'ldr x8, [x8, #0x30]', 'teardown calls Decoder slot 6 Stop (the cut cancels its timer)'),
+    (0x899ff0, 'ldr x8, [x8, #8]', 'teardown calls Decoder slot 1 deleting destructor'),
+    (0x89a004, 'ldr x8, [x8, #8]', 'teardown calls Extractor slot 1 deleting destructor'),
 ]
 bad = 0
 for a, want, why in CHAIN:
     got = ins(a); ok = got == want; bad += not ok
-    print(f'{"✓" if ok else "✗"} {a:#x}  {got:28s} {"" if ok else "期望 " + want}  {why}')
+    print(f'{"✓" if ok else "✗"} {a:#x}  {got:28s} {"" if ok else "expected " + want}  {why}')
 
 # Vtable slot names (subsdk0 dynamic symbols + RELATIVE relocations): the cut vtable is ordered by these slot numbers
 m0 = struct.unpack_from('<I', sub, 4)[0]; dyn = m0 + struct.unpack_from('<i', sub, m0 + 4)[0]
@@ -83,7 +83,7 @@ VT = [('_ZTVN5movie9ExtractorE', 4, '_ZN5movie9Extractor13GetTrackCountEPi'),
       ('_ZTVN5movie7DecoderE', 18, '_ZN5movie7Decoder21GetOutputBufferFormatEiPNS_9MediaDataE')]
 for vt, slot, want in VT:
     got = slot_name(rel.get(sym[vt] + 16 + 8 * slot, 0)); ok = got == want; bad += not ok
-    print(f'{"✓" if ok else "✗"} {vt} 槽{slot}  {got}{"" if ok else "  期望 " + want}')
+    print(f'{"✓" if ok else "✗"} {vt} slot {slot}  {got}{"" if ok else "  expected " + want}')
 n = len(CHAIN) + len(VT)
-print(f'{"全过" if not bad else "红"}：{n - bad}/{n}')
+print(f'{"all passed" if not bad else "[RED]"}: {n - bad}/{n}')
 sys.exit(1 if bad else 0)

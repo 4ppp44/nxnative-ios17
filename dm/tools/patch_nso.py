@@ -52,56 +52,56 @@ CUTS = {
     # (PlayerYoshiAnm uses 99%). On the host, Model/NpcCommonerA.bfres in the opening course Course900 is about 0x70 bytes short: after the model resource's last GPU chunk (MatBlock,
     # 0x9000 bytes, 4 KB aligned, main+0x4290c0) is placed, its 0x598-byte descriptor does not fit, the GPU allocation fails → a buffer is built on a null memory pool → null read crash at main+0x106f5c8.
     # Where this differs from hardware is not known (every allocation size before this block is determined by game code and data); for now every resource heap gets +16 KB.
-    (0x1e62fc, 'e00317aa', 'e0124091', '资源堆尺寸：mov x0,x23 → add x0,x23,#0x4000（ExpHeap::create 的尺寸参数 +16 KB）'),
+    (0x1e62fc, 'e00317aa', 'e0124091', 'resource heap size: mov x0,x23 → add x0,x23,#0x4000 (ExpHeap::create size argument +16 KB)'),
   ],
   # Super Mario Bros. Wonder 1.2.1 (v327680) main: same as above. Location carried over from v0 by dm/tools/nso_fnmap.py (containing function 0x1e603c → 0x1cf6f0 identical after address masking, ExpHeap::create 0x4aac38 → 0x4c4a18)
   'ff773e90972d544eb79406eaa65396d5': [
-    (0x1cf9b0, 'e00317aa', 'e0124091', '资源堆尺寸：mov x0,x23 → add x0,x23,#0x4000（ExpHeap::create 的尺寸参数 +16 KB）'),
+    (0x1cf9b0, 'e00317aa', 'e0124091', 'resource heap size: mov x0,x23 → add x0,x23,#0x4000 (ExpHeap::create size argument +16 KB)'),
   ],
   'db0507f36b84200ac05f75d76ed5026f': [
     # (Placed in the base rewrite shared by all build outputs): game video memory allocator budget 260 MB → 512 MB
-    (0x8524c4, '0808a2d2', '0800a4d2', '显存分配器初始化配置：mov x8,#0x10400000（260 MB）→ mov x8,#0x20000000（512 MB），随后 movk #0xa0,lsl48 与 str [sp,#0x238] 不变；'
-     '原预算下内部分辨率 > 约 345 万像素时（2736x1260 过、2864x1240 崩）渲染目标放不下，main+0x174b018 返回空、main+0x17417a4 读空崩溃；'
-     '只是显存预算，不进游戏逻辑：cvd5 逐拍对拍在 1600x900 与 2868x1320 两档均一致'),
-    (0x1979bc, 'e8a79f1a', 'e8d79f1a', '离线放行窗口：读存档设置键（0x1d53e80 处字串）的上次在线时刻，'
-     '「当前时刻 − 上次在线 < 0x0009356907420000 ns（= 30 天）」置位 [x20+0x2c]；lt→gt'),
-    (0x5b14dc, 'e8a79f1a', 'e8d79f1a', '调 0xddab50（缓冲区 [x10+0x138]+x25、剩余长度、回调 0x527d50、表 0x209cdb8、9 项）返回值 <1 置位，'
-     '为真时走 0x5b14f8 分支；lt→gt（业务含义未从字串定出）'),
-    (0x5f3184, 'e8a79f1a', 'e8d79f1a', '数据表 [0x2d64a18+idx*16] → +0xf90 记录（0x1fc 字节）+0x4c 下标 → +0xfd0 记录（0x128 字节）+0xf1 有符号字节 <0 置位，'
-     '与（w26>0x24）相与后作第 4 参传下游；lt→gt（业务含义未从字串定出）'),
+    (0x8524c4, '0808a2d2', '0800a4d2', 'video memory allocator init config: mov x8,#0x10400000 (260 MB) → mov x8,#0x20000000 (512 MB); the following movk #0xa0,lsl48 and str [sp,#0x238] are unchanged; '
+     'under the original budget an internal resolution above about 3.45 million pixels (2736x1260 passes, 2864x1240 crashes) leaves no room for the render targets: main+0x174b018 returns null and main+0x17417a4 crashes reading it; '
+     'only a video memory budget, it does not enter game logic: the cvd5 tick-by-tick comparison matches at both 1600x900 and 2868x1320'),
+    (0x1979bc, 'e8a79f1a', 'e8d79f1a', 'offline grace window: reads the last-online time of a save data settings key (the string at 0x1d53e80); '
+     '"now − last online < 0x0009356907420000 ns (= 30 days)" sets [x20+0x2c]; lt→gt'),
+    (0x5b14dc, 'e8a79f1a', 'e8d79f1a', 'calls 0xddab50 (buffer [x10+0x138]+x25, remaining length, callback 0x527d50, table 0x209cdb8, 9 entries) and sets the flag when it returns < 1; '
+     'when set the 0x5b14f8 branch is taken; lt→gt (its meaning was not determined from strings)'),
+    (0x5f3184, 'e8a79f1a', 'e8d79f1a', 'data table [0x2d64a18+idx*16] → +0xf90 record (0x1fc bytes) +0x4c index → +0xfd0 record (0x128 bytes) +0xf1 signed byte < 0 sets the flag, '
+     'which is ANDed with (w26>0x24) and passed on as the 4th argument; lt→gt (its meaning was not determined from strings)'),
     (0x1d53e80, '55736572204c617374204f6e6c696e6500', '566f6963654c616e677561676500000000',
-     '只读字串 "User Last Online" → "VoiceLanguage"：第 1 处改读一个必定存在的设置键，「上次在线」取到小数值，差值恒超 30 天，配合 gt 恒放行'),
-    # Product cut: the opening Logo and the 「按 A 开始」(Press A to Start) page are cut, and startup goes straight to the main menu (the loading screen is kept)
-    (0x8019ec, '280f0034', 'e8feff34', '前端引导首次进入分支：cbz w8,#0x801bd0（LogoMenuPanel → Logo 视频 → 标题页）改为 cbz w8,#0x8019c8'
-     '（落到直达路径的 0x23e5e0(1) → 0xb156a0 进主菜单；跳过 0x8019bc 起置联机模式 [0x2d7badc]=1 的两条，联机模式保持启动初值 0 = 离线，'
-     '不触发 0x80ec44 的联网检查、断网弹窗与回标题页）；r4 版目标 0x8019bc 会置联机模式 1，实测仍回标题页并弹断网框'),
+     'read-only string "User Last Online" → "VoiceLanguage": the first site reads a settings key that always exists instead, "last online" gets a small value, the difference always exceeds 30 days, and with gt it always passes'),
+    # Product cut: the opening Logo and the "Press A to Start" page are cut, and startup goes straight to the main menu (the loading screen is kept)
+    (0x8019ec, '280f0034', 'e8feff34', 'front-end boot first-entry branch: cbz w8,#0x801bd0 (LogoMenuPanel → logo video → title page) becomes cbz w8,#0x8019c8'
+     ' (landing on the direct path 0x23e5e0(1) → 0xb156a0 into the main menu; it skips the two instructions from 0x8019bc that set online mode [0x2d7badc]=1, so online mode keeps its startup value 0 = offline, '
+     'and the network check at 0x80ec44, the disconnected popup and the return to the title page are not triggered); the r4 target 0x8019bc set online mode 1, and in testing it still returned to the title page with the disconnected popup'),
     # Cuts for host-native implementations (host only: the ground-truth emulator does not apply them, Ryujinx does not know host call numbers from 0x80 up; equivalence is proven by per-block decoding matching 5511/5511)
-    (0x1b0ee60, 'fc6fbaa9fa6701a9', '011000d4c0035fd6', 'TACT BLTE 块 zlib 解码入口（DecodeZlib）→ svc #0x80 ; ret：宿主用 libdeflate 实现'
-     '（hle_tact.c，调用号登记在 hle.h SVC_HOST_TACT_ZLIB）；改写器先打剪口再扫描，svc #0x80 自动成为宿主门，门块保存恢复 x30，ret 回原调用者', '仅宿主'),
+    (0x1b0ee60, 'fc6fbaa9fa6701a9', '011000d4c0035fd6', 'TACT BLTE block zlib decode entry (DecodeZlib) → svc #0x80 ; ret: the host implements it with libdeflate'
+     ' (hle_tact.c, call number registered in hle.h SVC_HOST_TACT_ZLIB); the rewriter applies cuts before scanning, so svc #0x80 becomes a host gate by itself, the gate block saves and restores x30, and ret returns to the original caller', 'host-only'),
     # Hook points for host test switches (host only): by default the host forwards as is, behavior unchanged
-    (0x5d3a88, 'a27a0194', '211000d4', '收包泵 0x5d3960 投递客户端命令包的调用点 bl 0x632510 → svc #0x81：宿主缺省以原参数原样调用 0x632510（返回值调用方不用）；'
-     'DM_C2S_REPLAY 时丢弃客户端自发命令、改由拍入口按文件注入（diag.c，调用号登记在 hle.h SVC_HOST_C2S_DELIVER）', '仅宿主'),
-    (0x5d39c8, 'ba750194', '411000d4', '收包泵 0x5d3960 投递系统类消息的调用点 bl 0x6310b0 → svc #0x82：宿主缺省以原参数原样调用 0x6310b0（返回值调用方不用）；'
-     'DM_C2S_REPLAY 时，回放文件首拍起丢弃宿主客户端自发的系统类消息（之前的加入消息放行），改由拍入口按文件注入（diag.c，调用号登记在 hle.h SVC_HOST_C2S_SYS）', '仅宿主'),
+    (0x5d3a88, 'a27a0194', '211000d4', 'call site in the receive pump 0x5d3960 that delivers client command packets, bl 0x632510 → svc #0x81: by default the host calls 0x632510 with the original arguments (the caller ignores the return value); '
+     'with DM_C2S_REPLAY the commands the client issues itself are dropped and the tick entry injects them from the file instead (diag.c, call number registered in hle.h SVC_HOST_C2S_DELIVER)', 'host-only'),
+    (0x5d39c8, 'ba750194', '411000d4', 'call site in the receive pump 0x5d3960 that delivers system messages, bl 0x6310b0 → svc #0x82: by default the host calls 0x6310b0 with the original arguments (the caller ignores the return value); '
+     'with DM_C2S_REPLAY, from the first tick of the replay file on, the system messages the host client issues itself are dropped (join messages before that pass) and the tick entry injects them from the file instead (diag.c, call number registered in hle.h SVC_HOST_C2S_SYS)', 'host-only'),
     # Screen aspect (host only, together with the resolution parameter slots in PARAMS below): output resolution cap {u32 width, u32 height}, read or written at only three places in resolution selection
     # (0xe12e28 / 0xe10d70 read: if the selected value's width or height exceeds the cap, no switch is made; 0xe12f54 writes it to the selected value after initialization finishes selecting); initial value 1920x1080 → 4096x2160, so that a width widened to the screen aspect can pass
-    (0x211da30, '8007000038040000', '0010000070080000', '输出分辨率上限初值 1920x1080 → 4096x2160（数据段）：宿主按屏幕比例给的宽度（如 iPhone 19.5:9 的 1956x900）'
-     '须不超上限才会被选中；Mac 前端仍给原值 1600x900 / 1280x720，行为不变', '仅宿主'),
+    (0x211da30, '8007000038040000', '0010000070080000', 'output resolution cap initial value 1920x1080 → 4096x2160 (data segment): the width the host derives from the screen aspect ratio (e.g. 1956x900 on a 19.5:9 iPhone)'
+     ' is chosen only if it does not exceed the cap; the Mac front end still gives the original 1600x900 / 1280x720, behavior unchanged', 'host-only'),
     # The width that the operation-mode notification handler (0xe10d30) gives to the "window size changed" event: original code mov w9,#0x740; and x9,x25,x9 -- the compiler knew the width could only be 1280 (0x500) / 1600 (0x640),
     # and optimized "take the low 32 bits" into & (0x500|0x640). The KRES0 / KRES1 parameter slots replaced those two constants, but this derived mask was not changed along with them: 2868 & 0x740 = 768, 2296 & 0x740 = 64
     # (after switching docked / handheld while running, the output width was 64 / 768; the iOS overheating downgrade takes exactly this path). Changed to take the low 32 bits directly: same result for the original game's two widths, correct for any width
-    (0xe10e48, '09e880522903098a', 'e903192a1f2003d5', '运行模式通知发窗口尺寸事件的宽度：mov w9,#0x740; and x9,x25,x9 → mov w9,w25; nop（取低 32 位，不再用原版两档宽度推出的常数掩码）', '仅宿主'),
-    (0xe12e88, '09e880528902098a', 'e903142a1f2003d5', '启动初始化选分辨率（0xe12d70）同一处掩码：mov w9,#0x740; and x9,x20,x9 → mov w9,w20; nop（structck 参数门下游掩码检查查出；启动时事件接收对象通常未建，平时不显形）', '仅宿主'),
+    (0xe10e48, '09e880522903098a', 'e903192a1f2003d5', 'width in the window-size event sent by the operation-mode notification: mov w9,#0x740; and x9,x25,x9 → mov w9,w25; nop (takes the low 32 bits instead of the constant mask derived from the original two widths)', 'host-only'),
+    (0xe12e88, '09e880528902098a', 'e903142a1f2003d5', 'the same mask in the startup resolution choice (0xe12d70): mov w9,#0x740; and x9,x20,x9 → mov w9,w20; nop (found by the structck check of masks downstream of the parameter slots; at startup the event receiver usually does not exist yet, so it rarely shows)', 'host-only'),
     # Product cut (reproducing the exclusion list item "classic picture toggle"): the two state writes of the classic picture toggle 0xb15d60 → nop.
     # The picture transition state starts at 0x2dc0758 (+4 start, +8 target, +0xc progress; 1.0 = new picture); in the whole program the only writers are 0x852280 (startup init writes 1), 0x85cb20 (force back to the new picture, writes 1),
     # 0x856be0 (writes only +0xc) and 0xb15d60 (when not in a run, or when the run version is 1 / 2, flips the target between 0 / 1 according to the current coefficient) -- the last is the only place that can push the target toward 0;
     # the callers 0x36a5a0 / 0x4035e8 / 0xc25f48 / 0xc2725c are all toggle actions (the video option LegacyGraphicsMode, the character creation page's ToggleLegacy, the console version's ClassicToggle and the key LegacyToggle all converge here).
     # What is cut is two plain stores, containing no calls: the list of synchronization primitives and external side effects of the cut part is empty (the cut rule). The hint branch for run version 3 in a run (from 0xb15e2c) is untouched
-    (0xb15e20, '0281002d', '1f2003d5', '经典画面切换写起点 / 目标（stp s2, s0, [x8, #4]）→ nop：目标恒为 1.0（新画面）'),
-    (0xb15e24, '1f0d00b9', '1f2003d5', '经典画面切换清进度（str wzr, [x8, #0xc]）→ nop'),
+    (0xb15e20, '0281002d', '1f2003d5', 'classic picture toggle writes start / target (stp s2, s0, [x8, #4]) → nop: the target stays 1.0 (new picture)'),
+    (0xb15e24, '1f0d00b9', '1f2003d5', 'classic picture toggle clears progress (str wzr, [x8, #0xc]) → nop'),
     # Widescreen (host only, together with the KASPECT aspect ratio cap in PARAMS): the cap in UI canvas width = min(screen width, 4560 = 2160 × 19/9) is opened up to 0xffff.
     # In the original game at 16:9 the screen width of 3840 units < 4560, so the result is unchanged; on iPhone 1952x900 the screen width is about 4685 units, which used to be clamped to 4560, leaving about 26 pixels on each side
-    (0xb1a660, '083a8252', 'e8ff9f52', '界面画布宽上限 mov w8, #4560 → mov w8, #0xffff（画布宽 = 屏宽）', '仅宿主'),
+    (0xb1a660, '083a8252', 'e8ff9f52', 'UI canvas width cap mov w8, #4560 → mov w8, #0xffff (canvas width = screen width)', 'host-only'),
     # (Reverted: the cuts 0x3172f8 / 0x3173e4 for "SetLanguage 0x317298 clear + reload string tables" in place since r13 / r15 (originally set up to exclude languages other than Simplified Chinese),
     # reverted because of the English version -- switching language in the original game relies on this reload.)
     # Product cut: the loading of string table A (legacy, 0x2d70ff0 / 0x2d71010) is skipped as a whole. The load function 0x7f64f0(w0 = whether to load legacy)
@@ -111,19 +111,19 @@ CUTS = {
     # writes !obj[0xb9], and obj[0xb9] is obtained by comparing the picture transition state 0x2dc0758 with 1.0 -- r14 already cut the classic picture toggle, the only thing that can push the target away from 1.0; the flag is in .bss
     # (initial value 0), and the probe at 0xb1bcfc over the whole r15 cvd5 run hit 0 times (the write site never executed) ⇒ only table B is read throughout. The cut tree = 17 single-file loads via 0x7f72e0; same as the supplementary proof of
     # the language reload cut above (the same 0xdf67f0 read transaction, paired, no external waiters)
-    (0x7f669c, '370b0036', '59000014', '字符串表装载 tbz w23, #0（是否装 legacy 表 A）→ b 0x7f6800：表 A 无读者（选表标志恒 0 → 表 B），整段 17 个 legacy 文件不装'),
+    (0x7f669c, '370b0036', '59000014', 'string table load tbz w23, #0 (whether to load legacy table A) → b 0x7f6800: table A has no readers (the table-select flag is always 0 → table B), so none of the 17 legacy files is loaded'),
     # The per-block decode call sites of the two streaming segment read paths of Granny segment decoding (BitKnit2): by default the host forwards as is to 0x11f4af0 (the replacement hook point of pre-decode plan A, hle_granny.c)
-    (0x11f02dc, '05120094', '611000d4', '段读取 0x11f0110 逐块解码 bl 0x11f4af0(ctx, 块, 长度) → svc #0x83：宿主缺省以原参数原样调用并回填 w0（hle.h SVC_HOST_GRANNY_A）', '仅宿主'),
+    (0x11f02dc, '05120094', '611000d4', 'segment read 0x11f0110 per-block decode bl 0x11f4af0(ctx, block, length) → svc #0x83: by default the host calls it with the original arguments and writes back w0 (hle.h SVC_HOST_GRANNY_A)', 'host-only'),
     # Drop light (host only): the item's appearance definition path lookup bl 0xa14dc4(resource manager, unit, x8 output string) → svc #0x87: the host forwards the call as is,
     # and for items in mode 3 / 5 (on the ground / dropping) repoints the path by rule to the lit variant in the overlay (dm_dropfilter.c svc_ground_asset; hle.h SVC_HOST_GROUND_ASSET)
     # Tier-one drop sound (host only): fetching the drop sound on landing bl 0x470c20(item, &trigger frame) → svc #0x88: the host forwards the call as is, and tier-one items get a notification sound instead (dm_dropfilter.c svc_drop_sound)
-    (0x468f2c, '3d1f0094', '011100d4', '物品落地取掉落音调用点 bl 0x470c20 → svc #0x88：宿主原样代调后按规则把一档物品的掉落音换成提示音（其余原样）', '仅宿主'),
-    (0x8fa590, '0d6a0494', 'e11000d4', '物品外观路径调用点 bl 0xa14dc4 → svc #0x87：宿主原样代调后按规则改指地上物品的带光变体（存储 / 穿戴 / 腰带 / 镶嵌不碰）', '仅宿主'),
+    (0x468f2c, '3d1f0094', '011100d4', 'item landing drop-sound call site bl 0x470c20 → svc #0x88: the host makes the original call, then by rule replaces the drop sound of tier-one items with a notification sound (others unchanged)', 'host-only'),
+    (0x8fa590, '0d6a0494', 'e11000d4', 'item appearance path call site bl 0xa14dc4 → svc #0x87: the host makes the original call, then by rule points items on the ground at their lit variant (stashed / worn / belt / socketed untouched)', 'host-only'),
     # Run-entry spawn point (entering a run lands next to the town waypoint, with the corpse in the same place as the player; host only): the player join function 0x5d7f70 fetches a spawn point once for the player and once for the corpse, both via bl 0x5596c0(data version, act, level, cell type 0, &x, &y, unit size)
     # → svc #0x8a (player) / #0x8b (corpse): the host forwards the call as is; when the run is entered in town it instead picks the point by "waypoint cell 13 + a fixed safe distance", and the player, corpse and mercenary are placed in one go by the original game (the player is no longer moved by a level change on tick 2, and the corpse no longer stays at the original spawn point) (dm_townwp.c svc_join_spawn)
-    (0x5d8040, 'a005fe97', '411100d4', '玩家进局取出生点调用点 bl 0x5596c0 → svc #0x8a：宿主原样代调，进局在城镇时出生点换成小站旁（hle.h SVC_HOST_JOIN_SPAWN）', '仅宿主'),
-    (0x5d8400, 'b004fe97', '611100d4', '进局给尸体取落点调用点 bl 0x5596c0 → svc #0x8b：同上，尸体与人取同一个点（hle.h SVC_HOST_JOIN_CORPSE）', '仅宿主'),
-    (0x11f0914, '77100094', '811000d4', '段读取 0x11f07d0 逐块解码 bl 0x11f4af0(ctx, 块, 长度) → svc #0x84：同上（hle.h SVC_HOST_GRANNY_B）', '仅宿主'),
+    (0x5d8040, 'a005fe97', '411100d4', 'run-entry player spawn point call site bl 0x5596c0 → svc #0x8a: the host makes the original call, and when the run is entered in town the spawn point moves next to the waypoint (hle.h SVC_HOST_JOIN_SPAWN)', 'host-only'),
+    (0x5d8400, 'b004fe97', '611100d4', 'run-entry corpse placement call site bl 0x5596c0 → svc #0x8b: as above, the corpse gets the same point as the player (hle.h SVC_HOST_JOIN_CORPSE)', 'host-only'),
+    (0x11f0914, '77100094', '811000d4', 'segment read 0x11f07d0 per-block decode bl 0x11f4af0(ctx, block, length) → svc #0x84: as above (hle.h SVC_HOST_GRANNY_B)', 'host-only'),
   ],
   # Fire Emblem Engage 2.0.0 (v327680) sdk: AddressRegionManager node area 0x3fe00000 (about 1 GB) → 0x3e00000 (62 MB).
   # The constructor (sdk+0x346420) carves the node area out of the start of the alias region (a unit heap of 0x30-byte nodes, mapped only as used) before AllocateAddressRegion hands out regions.
@@ -138,7 +138,7 @@ CUTS = {
   # The cut is in Unity's managed wrapper QualitySettings.set_vSyncCount (main+0x32f92c0): both paths use w19 as the argument, mov w19,w0 → mov w19,#1,
   # so every caller (GameTime, QualitySettingsStack.PopImpl, XRSystem) can only set 1; the read side (get_vSyncCount) follows at 1 and the game stays consistent. No code calls SetQualityLevel.
   '8c08b9719e085f91847b5e0f935d9488': [
-    (0x32f92d4, 'f303002a', '33008052', 'QualitySettings.set_vSyncCount 包装：参数 mov w19,w0 → mov w19,#1（游戏自己的 60 帧路径）', '仅宿主'),
+    (0x32f92d4, 'f303002a', '33008052', 'QualitySettings.set_vSyncCount wrapper: argument mov w19,w0 → mov w19,#1 (the 60 fps path of the game itself)', 'host-only'),
   ],
   # The Legend of Zelda: Breath of the Wild 1.9.0 (v1114112) main: 60 fps. The main loop of sead::GameFrameworkNx (main+0x112660c) runs a dynamic interval (framework +0x267 = 1):
   # every frame it computes how many vsyncs the last frame needed (rounded up), clamped to [2, max 3] (the max comes from the interval controller +0xc, constructed at main+0x1126c04); it steps up after 3 overrunning frames in a row,
@@ -148,20 +148,20 @@ CUTS = {
   # when it struggles and steps back to 2 / 3 the ratio is 1 / 1.5, again at the same speed. So only the floor changes from 2 to 1: the lower bound of the candidate interval (two places), the step-down target recorded when stepping up, max(candidate, 3) - 1 → max(candidate, 2) - 1,
   # and stepping down stops at < 3 → < 2. On hardware the same logic starting from 1 would also be 60 fps; it falls back to 30 by itself only when its input shows a slow frame (the last two cuts make that input include the GPU time)
   'cd57b23fa4bbad65803d9788c01821ee': [
-    (0x112670c, '6041201e', '4041201e', '动态间隔候选下限：fmov s0,s11（2.0）→ fmov s0,s10（1.0）', '仅宿主'),
-    (0x1126710, '7f0b0071', '7f070071', '动态间隔候选下限：cmp w27,#2 → cmp w27,#1', '仅宿主'),
-    (0x112665c, '78008052', '58008052', '升档时记的降档目标 max(候选, w24) − 1：mov w24,#3 → mov w24,#2', '仅宿主'),
-    (0x1126748, '1f0d0071', '1f090071', '升档时记的降档目标：cmp w8,#3 → cmp w8,#2', '仅宿主'),
-    (0x1126794, '3f0d0071', '3f090071', '降档到 < 3 停 → 到 < 2 停：cmp w9,#3 → cmp w9,#2', '仅宿主'),
+    (0x112670c, '6041201e', '4041201e', 'lower bound of the candidate interval: fmov s0,s11 (2.0) → fmov s0,s10 (1.0)', 'host-only'),
+    (0x1126710, '7f0b0071', '7f070071', 'lower bound of the candidate interval: cmp w27,#2 → cmp w27,#1', 'host-only'),
+    (0x112665c, '78008052', '58008052', 'step-down target recorded when stepping up, max(candidate, w24) − 1: mov w24,#3 → mov w24,#2', 'host-only'),
+    (0x1126748, '1f0d0071', '1f090071', 'step-down target recorded when stepping up: cmp w8,#3 → cmp w8,#2', 'host-only'),
+    (0x1126794, '3f0d0071', '3f090071', 'stepping down stops at < 3 → at < 2: cmp w9,#3 → cmp w9,#2', 'host-only'),
     # The controller's input (framework +0x250, controller main+0x1126cec..) is the main thread's CPU span up to the draw step (about 2.7 ms in the first shrine), so GPU-bound frames stayed at interval 1 and the game ran slow
     # (iPhone 16 Pro Max: 25 ms frames, two thirds of the speed). The game has a GPU-time path that uses max(CPU span, GPU time between the frame's two timestamp reports, framework +0x220, read after the fence wait)
     # but takes it only while [main+0x1e3a638]+0x1d2b8 is set (64 of 6,046 shrine frames); both of its checks become branches into it. The GPU time needs the profile's gpu_timestamps segment
-    (0x112691c, 'c00000b4', '03000014', '间隔控制器恒走 GPU 时间路径（CPU 段计时）：cbz x0,#0x1126934 → b #0x1126928', '仅宿主'),
-    (0x1126974, 'c00000b4', '03000014', '间隔控制器恒走 GPU 时间路径（取 max(CPU 段, GPU 时间)）：cbz x0,#0x112698c → b #0x1126980', '仅宿主'),
+    (0x112691c, 'c00000b4', '03000014', 'interval controller always takes the GPU time path (CPU span timing): cbz x0,#0x1126934 → b #0x1126928', 'host-only'),
+    (0x1126974, 'c00000b4', '03000014', 'interval controller always takes the GPU time path (takes max(CPU span, GPU time)): cbz x0,#0x112698c → b #0x1126980', 'host-only'),
   ],
   '56ec24747ec9e7f19b3efb062483a19d': [
-    (0x346430, '08fca752', '087ca052', 'AddressRegionManager 构造：节点区上限 mov w8,#0x3fe00000 → mov w8,#0x3e00000', '仅宿主'),
-    (0x3464cc, '09fca752', '097ca052', 'AddressRegionManager 构造：节点区登记为已占区域的长度 mov w9,#0x3fe00000 → mov w9,#0x3e00000', '仅宿主'),
+    (0x346430, '08fca752', '087ca052', 'AddressRegionManager constructor: node area limit mov w8,#0x3fe00000 → mov w8,#0x3e00000', 'host-only'),
+    (0x3464cc, '09fca752', '097ca052', 'AddressRegionManager constructor: length of the node area registered as an occupied region mov w9,#0x3fe00000 → mov w9,#0x3e00000', 'host-only'),
   ],
   # The Legend of Zelda: Link's Awakening 1.1.0 (v131072) main: the physics step (main+0x15730, main thread) rebuilds each world's PhysX completion task in place
   # (a PxLightCpuTask at world+0xc8) and passes it to simulate. A worker runs it (main+0x10ccf80: fetchResults, world+0x1d8 done = 1, notify, unlock) and then calls its
@@ -172,7 +172,7 @@ CUTS = {
   # unlock within nanoseconds. The release becomes a plain ret: the destructor only resets the vtable and mTm (no resources), the step rebuilds every field, and this
   # release is used by this one vtable (main+0x1c51308 slot 7) only
   '909e904af78ac1b8deefe97ab2ccdb51': [
-    (0x10cd070, '080040f9', 'c0035fd6', '物理完成任务 release（自调析构）：ldr x8,[x0] → ret（不再析构；步进函数每步原地重建）', '仅宿主'),
+    (0x10cd070, '080040f9', 'c0035fd6', 'physics completion task release (calls its own destructor): ldr x8,[x0] → ret (no longer destroyed; the step function rebuilds it in place every step)', 'host-only'),
   ],
   # Hyrule Warriors: Age of Calamity 1.3.0 (v327680) main: the init (main+0x8d9610) hands the KTSL sound engine three heaps carved from one block: 15 MB engine memory, 2 MB, and
   # 142 MB sound data (sizes built by mov x8,#0xf00000; movk x8,#0x20,lsl #48 and mov w9,#0x8e00000; constructor main+0x12647a0, heaps created at main+0x1a2ba58). The audio renderer
@@ -181,8 +181,8 @@ CUTS = {
   # the first sound archive (ASRS) never loaded and nnMain's resource wait (main+0x8d9bc8) spun forever. Where hardware differs is not known. The engine heap gets 4 MB from the
   # sound data heap, so the block the three come from keeps its size
   'c3cf52bf2b05d7310884971b50bcccb8': [
-    (0x8d9610, '081ea0d2', '0826a0d2', '声音引擎堆：mov x8,#0xf00000 → mov x8,#0x1300000（+4 MB）'),
-    (0x8d9618, '091ca152', '0914a152', '声音数据堆：mov w9,#0x8e00000 → mov w9,#0x8a00000（-4 MB，三个堆所在块的总尺寸不变）'),
+    (0x8d9610, '081ea0d2', '0826a0d2', 'sound engine heap: mov x8,#0xf00000 → mov x8,#0x1300000 (+4 MB)'),
+    (0x8d9618, '091ca152', '0914a152', 'sound data heap: mov w9,#0x8e00000 → mov w9,#0x8a00000 (-4 MB; the block the three heaps come from keeps its total size)'),
   ],
 }
 # ---- Registered observation gates: {NSO build ID: [(offset, number, original instruction word, reason)]}. Numbers match OBS_* in the host's hle.h;
@@ -191,30 +191,30 @@ OBS = {
   # Metroid Dread 2.1.0 main: the movie player posts "link / unlink holders" requests into the dispatcher thread's request ring (main+0x222cc8) and goes on without waiting for them (after an unlink it frees the wrapper object and builds a new one in place).
   # On hardware the dispatcher thread (priority 30, core 0 only) preempts the main thread (priority 44, core 0) at once and finishes first; the host waits for the ring to empty after each post (hle_movie.c movie_ring_wait). The gates sit on the add x22, x22, #8 after the bl
   '646761f643afebb379edd5e6a5151af2': [
-    (0x2247a4, 19, '910022d6', '挂等待项请求投完（main+0x224728 循环，x19 = 请求环）：等分发线程处理完；原指令 add x22, x22, #8 | link request posted (loop at main+0x224728, x19 = request ring): wait for the dispatcher; orig add x22, x22, #8'),
-    (0x2248e4, 20, '910022d6', '摘等待项请求投完（main+0x224868 循环，x19 = 请求环）：等分发线程处理完再释放对象；原指令 add x22, x22, #8 | unlink request posted (loop at main+0x224868, x19 = request ring): wait for the dispatcher before the object is freed; orig add x22, x22, #8'),
+    (0x2247a4, 19, '910022d6', 'link request posted (loop at main+0x224728, x19 = request ring): wait for the dispatcher; orig add x22, x22, #8'),
+    (0x2248e4, 20, '910022d6', 'unlink request posted (loop at main+0x224868, x19 = request ring): wait for the dispatcher before the object is freed; orig add x22, x22, #8'),
   ],
   'db0507f36b84200ac05f75d76ed5026f': [
-    (0xb1dc60, 1, 'd10603ff', 'UI 消息总线虚函数实现入口（x1 = 消息 {u64 类型哈希, u64 动作哈希, char* 面板名, …}）：'
-     'DM_UIMSG 消息流与 DM_BOOTPROF 启动分段的唯一来源；原指令 sub sp, sp, #0x180'),
-    (0x5d3bc0, 2, 'd10503ff', '服务端拍入口（x0 = 游戏对象 G）：DM_TICKS 逐拍 6 格状态哈希（dm/verify/tick_state_format.md，与真值 swtick.py 同一采集点）；'
-     '原指令 sub sp, sp, #0x140'),
-    (0x6e5b40, 3, 'd10103ff', '客户端命令分派入口 (G, 单位, 包, 长度)：DM_C2S_LOG 命令包序列（dm/verify/command_packet_format.md，与真值同一采集点）；'
-     '原指令 sub sp, sp, #0x40'),
-    (0x6310b0, 4, 'a9bb67fc', '系统类客户端消息处理入口 (buf = u32 客户端号 + 包, 包长)：包号 ≥ 0x67（加入 / 心跳 0x6d / 0x6f 等），收包泵先抽干此队列；'
-     'DM_C2S_LOG 记为 "q":"sys"；原指令 stp x28, x25, [sp, #-0x50]!'),
-    (0x317298, 5, 'd10183ff', 'SetLanguage 入口（x1 → u32 新语言号，语言名表 main+0x20ae478）：配合上方语言重载剪口，宿主断言新语言为 zhCN；'
-     '原指令 sub sp, sp, #0x60'),
+    (0xb1dc60, 1, 'd10603ff', 'UI message bus virtual implementation entry (x1 = message {u64 type hash, u64 action hash, char* panel name, …}): '
+     'the only source of the DM_UIMSG message stream and the DM_BOOTPROF boot phases; orig sub sp, sp, #0x180'),
+    (0x5d3bc0, 2, 'd10503ff', 'server tick entry (x0 = game object G): DM_TICKS per-tick 6-field state hash (dm/verify/tick_state_format.md, the same capture point as the ground truth swtick.py); '
+     'orig sub sp, sp, #0x140'),
+    (0x6e5b40, 3, 'd10103ff', 'client command dispatch entry (G, unit, packet, length): DM_C2S_LOG command packet sequence (dm/verify/command_packet_format.md, the same capture point as the ground truth); '
+     'orig sub sp, sp, #0x40'),
+    (0x6310b0, 4, 'a9bb67fc', 'system client message handler entry (buf = u32 client number + packet, packet length): packet IDs ≥ 0x67 (join / heartbeat 0x6d / 0x6f etc.), the receive pump drains this queue first; '
+     'DM_C2S_LOG records it as "q":"sys"; orig stp x28, x25, [sp, #-0x50]!'),
+    (0x317298, 5, 'd10183ff', 'SetLanguage entry (x1 → u32 new language number, language name table main+0x20ae478): together with the language reload cut above, the host asserts that the new language is zhCN; '
+     'orig sub sp, sp, #0x60'),
 ]}
 BUILD_ID = d[0x40:0x50].hex()
 # Build-time product rules: the old original-resource / comparison domain is unchanged by default; the touchscreen version is issued separately as a new version, and guest code is not written at runtime.
 RULESET = os.environ.get('DM_RULESET', 'native')
-assert RULESET in ('native', 'touch-run-v4'), f'未知规则域 {RULESET}'
+assert RULESET in ('native', 'touch-run-v4'), f'unknown rule set {RULESET}'
 RULE_BUILD = 'db0507f36b84200ac05f75d76ed5026f'
 RULE_RUN = RULESET == 'touch-run-v4' and NAME == 'main'
 if RULE_RUN:
     import hashlib
-    assert BUILD_ID == RULE_BUILD, f'Run规则构建号不符 {BUILD_ID}'
+    assert BUILD_ID == RULE_BUILD, f'Run rule build ID mismatch {BUILD_ID}'
     RULE_ORIG_SHA = hashlib.sha256(IMG).hexdigest()
 cuts = list(CUTS.get(BUILD_ID, []))
 # The touchscreen rule domain by default also carries the host-private gates; the rule gate check can turn them off explicitly, keeping the same packaging entry point and rule domain.
@@ -222,53 +222,53 @@ PRIVATE_GATES = os.environ.get("DM_PRIVATE_GATES", "1") != "0"
 PRIVATE_AIM = RULE_RUN and PRIVATE_GATES
 if PRIVATE_AIM:
     cuts.append((0x2faf04, 'fde7fe97', 'c11000d4',
-      'skill-aim-v1-private: skill ground direction call only; svc86 delegates original2b4ef8 then sampled-right/original rotation+grid; zero/nonplayer/non-skill retain original; busy/town/skill/server untouched', '仅宿主'))
+      'skill-aim-v1-private: skill ground direction call only; svc86 delegates original2b4ef8 then sampled-right/original rotation+grid; zero/nonplayer/non-skill retain original; busy/town/skill/server untouched', 'host-only'))
 if RULE_RUN:
     # Directional light shadow map edge length (quality level 1, 0x168a520 fills +0x48 → creates the 2-layer array 0x1697394): 2100 → 1024. Authorization: "visually indistinguishable is enough";
     # on the second Mac, 108 images + 16 consecutive frames: for camp / wilderness / combat, at every level down to 1024 the FLIP cannot be told apart from the noise of a rerun with the same settings, and the change between adjacent frames in shadow regions is 0.71 → 0.75; on a real device the two shadow maps total about 0.7–1.4 ms / frame.
     # The shadow size constants and the viewport that the game passes to the shader change with the same config value (verified by dump). The native rule domain (the Mac gate check against the original game's ground truth) stays at 2100
     SHADOW_SIDE = 1024
     movz_w14 = lambda n: struct.pack('<I', 0x52800000 | (n << 5) | 14).hex()   # movz w14,#n -- the bytes are computed by an expression, not written by hand (a hand calculation came out as #32768, and the shadow map allocation of 32768² failed, crashing at startup)
-    cuts.append((0x168a580, movz_w14(2100), movz_w14(SHADOW_SIDE), f'阴影图边长 mov w14,#2100 → mov w14,#{SHADOW_SIDE}（档位 1）', '仅宿主'))
+    cuts.append((0x168a580, movz_w14(2100), movz_w14(SHADOW_SIDE), f'shadow map side mov w14,#2100 → mov w14,#{SHADOW_SIDE} (quality level 1)', 'host-only'))
 if RULE_RUN:
     # Purely informational system notifications do not swallow the function key: the controller version's notification panel handler 0x3d84a0, on "action 9 (PLUS) pressed", executes the confirm action carried by the notification and swallows the key (meant for "press PLUS on a level-up notification to go straight to the skill tree").
-    # The confirm action carried by a system notification (event queue class 12, 0xab5c08; e.g. 「游戏难度设为 N…」(game difficulty set to N...) after changing the difficulty) only closes itself, and the result is that during the 10 seconds the notification stays up the first press of the red cross does nothing (reproduced on a real device + Mac).
+    # The confirm action carried by a system notification (event queue class 12, 0xab5c08; e.g. "game difficulty set to N..." after changing the difficulty) only closes itself, and the result is that during the 10 seconds the notification stays up the first press of the red cross does nothing (reproduced on a real device + Mac).
     # Fix: system notifications carry no confirm action (the category hash is stored as 0); notifications without a confirm action do not handle PLUS (they take the original function's "forward to child widgets" exit 0x3d880c) and close by themselves at notificationSeconds. Notifications with a confirm action are unchanged
     cbz_x8 = lambda at, to: struct.pack('<I', 0xB4000008 | (((to - at) >> 2) & 0x7ffff) << 5).hex()
     str_x19_178 = lambda rt: struct.pack('<I', 0xF9000000 | (0x178 // 8) << 10 | 19 << 5 | rt).hex()
-    cuts.append((0xab5c28, str_x19_178(8), str_x19_178(31), '系统通知的确认动作类别 str x8,[x19,#0x178] → str xzr（不带确认动作）', '仅宿主'))
-    cuts.append((0x3d853c, cbz_x8(0x3d853c, 0x3d8560), cbz_x8(0x3d853c, 0x3d880c), '通知面板：确认动作类别为空 → 不处理 PLUS', '仅宿主'))
-    cuts.append((0x3d8544, cbz_x8(0x3d8544, 0x3d8560), cbz_x8(0x3d8544, 0x3d880c), '通知面板：确认动作哈希为空 → 不处理 PLUS', '仅宿主'))
+    cuts.append((0xab5c28, str_x19_178(8), str_x19_178(31), 'system notification confirm-action category str x8,[x19,#0x178] → str xzr (no confirm action)', 'host-only'))
+    cuts.append((0x3d853c, cbz_x8(0x3d853c, 0x3d8560), cbz_x8(0x3d853c, 0x3d880c), 'notification panel: confirm-action category empty → PLUS not handled', 'host-only'))
+    cuts.append((0x3d8544, cbz_x8(0x3d8544, 0x3d8560), cbz_x8(0x3d8544, 0x3d880c), 'notification panel: confirm-action hash empty → PLUS not handled', 'host-only'))
 if RULE_RUN:
     # The skill tooltip appears beside the skill tree and does not cover the tree: the skill tree panel's per-frame update (0xc356b0) calls the tooltip entry 0xb16660 at 0xc35fd4, with position argument x1 = the icon's absolute coordinates (low 32 bits x, high 32 bits y + 3);
     # the controller version's tooltip expands against the icon's lower right, which on a touchscreen covers exactly the few skills around the finger. The bfxil x1,x8,#0,#32 at 0xc35fb0 is a no-op that copies the low half of x1 back into x1 (x8 = x1),
     # and is replaced with movk x1,#3000: the x coordinate is put off screen, and the tooltip entry's own clamp-back (0xb0d560, by TooltipsPanel's screenEdgePadding) snaps it to the right safe-area edge; the y coordinate is untouched
-    cuts.append((0xc35fb0, struct.pack('<I', 0xB3407D01).hex(), struct.pack('<I', 0xF2800000 | 3000 << 5 | 1).hex(), '技能说明框横坐标给到屏幕外，由原回夹贴右边（不盖技能树）', '仅宿主'))
+    cuts.append((0xc35fb0, struct.pack('<I', 0xB3407D01).hex(), struct.pack('<I', 0xF2800000 | 3000 << 5 | 1).hex(), 'skill tooltip x coordinate put off screen, the original clamp-back snaps it to the right edge (does not cover the skill tree)', 'host-only'))
 if RULE_RUN and PRIVATE_GATES:
     # Only stamina eligibility / movement selection / walk-run preference are registered; direction, real magnitude, legal mode and the zero-axis branch are not changed.
     # The type0 guard for the two generic cost / selector points is in the small native trampoline below; non-player keeps the original behavior.
     run_words = [
-        (0x2c620c, 0xb90e511f, 0x52800029, '偏好初始化：mov w9,1（x8仍为2d20000）'),
-        (0x2c6210, 0xd00152c8, 0xb90e5109, '偏好初始化：str w9,[x8,e50]；替代同页重复adrp，保原x8'),
-        (0x369a90, 0xd100c3ff, None, '客户端RunOff入口尾跳原RunOn；保其player0/合法mode/环境门'),
-        (0x369980, 0x340006a0, 0xd503201f, '客户端RunOn仅取消既有player0门之后的零精力拒绝'),
-        (0x2b2c74, 0x340000a0, 0xd503201f, '控制器d29资格仅取消stat10零值限制；幅度比较与停杆保原'),
-        (0x2b2dc0, 0x3900031f, 0xd503201f, '控制器d29仅取消stat10零值清除；幅度归一化保原'),
-        (0x2b30fc, 0x0a090101, 0x52800021, '已通过合法动作/零轴门的移动编码选择位固定Run；幅度不改'),
-        (0x2b3104, 0x2a1f03e1, 0x52800021, '无用户走跑偏好时亦固定Run编码位；方向/幅度不改'),
-        (0x6dc2c4, 0x1a880502, 0x52800062, 'server42合法移动请求固定Run3，原type0/死亡/锁定/幅度/方向门保留'),
-        (0x6dce90, 0x340000e0, 0xd503201f, 'server49仅取消既有player0/mode2门之后的零精力拒绝'),
-        (0x6dcec0, 0xa9bf7bfd, None, 'server4A入口尾跳原49；长度/type0/mode门保留'),
+        (0x2c620c, 0xb90e511f, 0x52800029, 'preference init: mov w9,1 (x8 still 2d20000)'),
+        (0x2c6210, 0xd00152c8, 0xb90e5109, 'preference init: str w9,[x8,e50]; replaces the duplicate adrp of the same page, keeps the original x8'),
+        (0x369a90, 0xd100c3ff, None, 'client RunOff entry tail-jumps to the original RunOn; keeps its player0 / legal mode / environment gates'),
+        (0x369980, 0x340006a0, 0xd503201f, 'client RunOn: only cancels the zero-stamina rejection after the existing player0 gate'),
+        (0x2b2c74, 0x340000a0, 0xd503201f, 'controller d29 eligibility: only cancels the stat10 zero limit; magnitude comparison and stick release unchanged'),
+        (0x2b2dc0, 0x3900031f, 0xd503201f, 'controller d29: only cancels the stat10 zero clear; magnitude normalization unchanged'),
+        (0x2b30fc, 0x0a090101, 0x52800021, 'movement encoding select bit fixed to Run once past the legal-action / zero-axis gates; magnitude unchanged'),
+        (0x2b3104, 0x2a1f03e1, 0x52800021, 'Run encoding bit fixed also without a user walk/run preference; direction / magnitude unchanged'),
+        (0x6dc2c4, 0x1a880502, 0x52800062, 'server42 legal move request fixed to Run3; the original type0 / death / lock / magnitude / direction gates stay'),
+        (0x6dce90, 0x340000e0, 0xd503201f, 'server49: only cancels the zero-stamina rejection after the existing player0 / mode2 gates'),
+        (0x6dcec0, 0xa9bf7bfd, None, 'server4A entry tail-jumps to the original 49; length / type0 / mode gates stay'),
     ]
     for off, old, new, why in run_words:
         if new is None:
             target = 0x369900 if off == 0x369a90 else 0x6dce50
             new = 0x14000000 | (((target - off) >> 2) & 0x3ffffff)
-        cuts.append((off, struct.pack('<I', old).hex(), struct.pack('<I', new).hex(), 'touch-run-v4：' + why))
-cuts = [c if len(c) == 5 else (*c, '全') for c in cuts]          # 5th item is the scope: 全 (all) | 仅宿主 (host only) (仅宿主 = not applied by the ground-truth emulator)
+        cuts.append((off, struct.pack('<I', old).hex(), struct.pack('<I', new).hex(), 'touch-run-v4: ' + why))
+cuts = [c if len(c) == 5 else (*c, 'all') for c in cuts]          # 5th item is the scope: all | host-only (host-only = not applied by the ground-truth emulator)
 for off, ob, nb, why, scope in cuts:
     ob, nb = bytes.fromhex(ob), bytes.fromhex(nb)
-    assert len(ob) == len(nb) and IMG[off:off + len(ob)] == ob, f'剪口原字节不符 {off:#x}：{bytes(IMG[off:off + len(ob)]).hex()}'
+    assert len(ob) == len(nb) and IMG[off:off + len(ob)] == ob, f'cut original bytes mismatch {off:#x}: {bytes(IMG[off:off + len(ob)]).hex()}'
     IMG[off:off + len(nb)] = nb
 # Key page indices are fixed; the key page content is written by the loader as "actual key number × 8".
 KEYS = {'K18': 508, 'KTLS': 509, 'KTLR': 510, 'KGATE': 511, 'KRES0': 506, 'KRES1': 507, 'KASPECT': 505, 'KASPECTUI': 504}   # KRES*: resolution parameter slots; KASPECT: picture aspect ratio cap (see PARAMS)
@@ -499,7 +499,7 @@ def site_obs(off, oid, word):
         The first half of the gate block is word-for-word isomorphic with site_gate; the host only reads registers and does not modify them (the x0–x8 written back by dm_gate are the original values)."""
     ins = dis(word, off)
     assert ins.mnemonic not in ('adr', 'adrp', 'b', 'bl', 'br', 'blr', 'ret', 'cbz', 'cbnz', 'tbz', 'tbnz') and not ins.mnemonic.startswith('b.') \
-        and not (ins.mnemonic.startswith('ldr') and '[' not in ins.op_str) and not has18(ins), f'观测门原指令不可搬 {off:#x} {ins.mnemonic} {ins.op_str}'
+        and not (ins.mnemonic.startswith('ldr') and '[' not in ins.op_str) and not has18(ins), f'observation gate original instruction cannot be relocated {off:#x} {ins.mnemonic} {ins.op_str}'
     start = here()
     emit(STP_PRE(29, 30, 31, -16))
     emit_gate_call()
@@ -842,7 +842,7 @@ if RULE_RUN and PRIVATE_GATES:
     gates.append((ret, 'svc', 0x85, off))
     put_branch(off, start); stat('private_skill_render')
     cuts.append((off, struct.pack('<I', word).hex(), struct.pack('<I', B(off,start)).hex(),
-                 'private confirmed six HUD only: own image/text skip ->4460; unknown original ->4440; svc85 full800', '仅宿主'))
+                 'private confirmed six HUD only: own image/text skip ->4460; unknown original ->4440; svc85 full800', 'host-only'))
 elif RULE_RUN:
     patch.extend(bytes(0x80))
     stat('private_gates_reserved')
@@ -864,12 +864,12 @@ if RULE_RUN and PRIVATE_GATES:
     obs.append((0x2f7664, 7, "6dbb23e9", "touch target rank: candidate compare entry (closure, unit, kind, s0=score); host raises Boss/elite score, native eligibility unchanged"))
 for off, oid, ow, why in obs:
     w = struct.unpack_from('<I', IMG, off)[0]
-    assert f'{w:08x}' == ow, f'观测门原指令不符 {off:#x}：{w:08x}'
+    assert f'{w:08x}' == ow, f'observation gate original instruction mismatch {off:#x}: {w:08x}'
     # Function entries, or the instruction right after a bl, only: dm_gate writes back only x0–x8 / x30, and host C code may modify x9–x17; at entry these carry no values under AAPCS64 (arguments are only in x0–x7 / x8),
     # and right after a call returns the callee was free to clobber them anyway (x16 / x17 are the veneer registers)
     after_bl = off >= 4 and struct.unpack_from('<I', IMG, off - 4)[0] >> 26 == 0x25
     assert off in set(starts) or after_bl or (oid == 6 and off == 0x43ecc8), f'private obs point not approved {off:#x}'
-    assert off < TEXT_END and off not in kinds and not any(lo <= off < hi for wseg in windows for lo, hi in [(wseg[0].address, wseg[-1].address + 4)]), f'观测门与改写点冲突 {off:#x}'
+    assert off < TEXT_END and off not in kinds and not any(lo <= off < hi for wseg in windows for lo, hi in [(wseg[0].address, wseg[-1].address + 4)]), f'observation gate conflicts with a rewrite site {off:#x}'
     put_branch(off, site_obs(off, oid, w)); stat('obs')
 
 # Rift exit rerouting (since r36): branch gate 0x89, hooked at the entry of "change level by the exit tile's connection" main+0x7cc1e0(game, player, tile). Its four callers (clicking an exit tile 0x6dbea0,
@@ -891,7 +891,7 @@ if RULE_RUN and PRIVATE_GATES:
     gates.append((ret, 'svc', 0x89, off))
     put_branch(off, start); stat('rift_exit')
     cuts.append((off, struct.pack('<I', word).hex(), struct.pack('<I', B(off, start)).hex(),
-                 'rift exit redirect: tile-link level change entry -> host swaps (level, kind) and x8!=0 takes the branch to level-number change 0x634000; otherwise original ->0x7cc1e4; svc89', '仅宿主'))
+                 'rift exit redirect: tile-link level change entry -> host swaps (level, kind) and x8!=0 takes the branch to level-number change 0x634000; otherwise original ->0x7cc1e4; svc89', 'host-only'))
 
 # Current act written to the save while in a Rift (since r38): branch gate 0x8c, hooked at the "read difficulty" instruction main+0x6fa9d0 (ldrb w10,
 # [x21, #0x104]) inside the original save-header writer 0x6fa3e0.
@@ -918,7 +918,7 @@ if RULE_RUN and PRIVATE_GATES:
     gates.append((ret, 'svc', 0x8c, off))
     put_branch(off, start); stat('rift_save_act')
     cuts.append((off, struct.pack('<I', word).hex(), struct.pack('<I', B(off, start)).hex(),
-                 'rift save act: save-header writer, right after it loads the current act into w9 -> host swaps w9 to 4 (act V) while the player is in a rift map; x8 stays 0, original insn runs ->0x6fa9d4; svc8c', '仅宿主'))
+                 'rift save act: save-header writer, right after it loads the current act into w9 -> host swaps w9 to 4 (act V) while the player is in a rift map; x8 stays 0, original insn runs ->0x6fa9d4; svc8c', 'host-only'))
 # Extra mercenary equipment slots (since r39): branch gate 0x8d, hooked in the monster-owner branch of the original game's generic placement check main+0x6493a8 at main+0x64a34c (mov w9, w25).
 # This section (0x64a314–0x64a354) lets through only two kinds of items for monster-type owners: 0x574bc0(item, 3 armor) and 0x574bc0(item, 0x25 helm); if neither, it takes the weapon path (by the left / right hand types in monstats), and if that fails too it rejects.
 # The gate is hooked after the "is it a helm" call returns and before cbnz w0: when "the owner is the player's mercenary + highest rift level cleared ≥ 10 + the item is a belt / boots / gloves / ring / amulet", the host changes w0 to 1,
@@ -938,7 +938,7 @@ if RULE_RUN and PRIVATE_GATES:
     gates.append((ret, 'svc', 0x8d, off))
     put_branch(off, start); stat('merc_slot')
     cuts.append((off, struct.pack('<I', word).hex(), struct.pack('<I', B(off, start)).hex(),
-                 'merc slots: placement check, monster-owner branch right after the helm type test -> host sets w0=1 for ring/amulet/boots/gloves/belt on a hireling (rift best >= 10 for new equips; always on load); x8 stays 0, original insn runs ->0x64a350; svc8d', '仅宿主'))
+                 'merc slots: placement check, monster-owner branch right after the helm type test -> host sets w0=1 for ring/amulet/boots/gloves/belt on a hireling (rift best >= 10 for new equips; always on load); x8 stays 0, original insn runs ->0x64a350; svc8d', 'host-only'))
 # Client half of the extra mercenary equipment slots (same generation as r39): branch gate 0x8e, hooked inside the client's "can the mercenary wear this" function main+0x3bea44(mercenary, item) at main+0x3beb58 (mov x0, x19).
 # This function follows the same rule as the server-side section: if either 0x574bc0(item, 3 armor) or 0x574bc0(item, 0x25 helm) matches it returns 1, and if neither does it takes the weapon path. The item cell widget uses its result to draw the "cannot place" red and
 # to decide whether to place on release -- without changing it, an unlocked new cell still shows red when the right item is dragged over it, and the original game's drop fails (previously the touch layer's fallback called 0x3bed60 directly).
@@ -959,32 +959,32 @@ if RULE_RUN and PRIVATE_GATES:
     gates.append((ret, 'svc', 0x8e, off))
     put_branch(off, start); stat('merc_slot_client')
     cuts.append((off, struct.pack('<I', word).hex(), struct.pack('<I', B(off, start)).hex(),
-                 'merc slots (client): hireling can-equip check, between "mov w1,#0x25" and the type test -> host swaps w1 to the item\'s own type for ring/amulet/boots/gloves/belt (rift best >= 10); x8 stays 0, original insn runs ->0x3beb5c; svc8e', '仅宿主'))
+                 'merc slots (client): hireling can-equip check, between "mov w1,#0x25" and the type test -> host swaps w1 to the item\'s own type for ring/amulet/boots/gloves/belt (rift best >= 10); x8 stays 0, original insn runs ->0x3beb5c; svc8e', 'host-only'))
 
 # ---- Parameter slots (host only): {NSO build ID: [(offset A, original word A, offset B, original word B, register, key, reason)]}.
 # The two constant-building instructions at the original site are changed so that the first jumps to a parameter trampoline in the patch area and the second is a nop; the trampoline fetches the key page value indirectly and jumps back to just after the first (A+4): when A and B are not adjacent, the original instructions in between execute as usual
 # (it used to jump back to B+4; in the operation-mode notification handler 0xe10d5c/0xe10d60 that skipped adrp x19.. and another trampoline, and switching to handheld crashed immediately; structck ⑩ checks the trampoline exit).
 # xR must not be read or written between A and B (offline assertion: the instructions in between do not contain xR). The host supplies values according to the front end, Mac supplies the original constants → behavior unchanged ----
 PARAMS = {'db0507f36b84200ac05f75d76ed5026f': [
-    (0xe12d8c, 'd280c813', 0xe12d90, 'f2c07093', 19, 'KRES1', '启动初始化：主机模式输出分辨率 1600x900（{u32 宽, u32 高} 打包）'),
-    (0xe12e1c, 'd280a008', 0xe12e20, 'f2c05a08', 8, 'KRES0', '启动初始化：掌机模式输出分辨率 1280x720'),
-    (0xe10d60, 'd280c818', 0xe10d80, 'f2c07098', 24, 'KRES1', '运行模式变化通知（0x1f）处理：主机模式 1600x900'),
-    (0xe10d5c, 'd280a016', 0xe10d74, 'f2c05a16', 22, 'KRES0', '运行模式变化通知（0x1f）处理：掌机模式 1280x720'),
+    (0xe12d8c, 'd280c813', 0xe12d90, 'f2c07093', 19, 'KRES1', 'startup init: docked-mode output resolution 1600x900 (packed as {u32 width, u32 height})'),
+    (0xe12e1c, 'd280a008', 0xe12e20, 'f2c05a08', 8, 'KRES0', 'startup init: handheld-mode output resolution 1280x720'),
+    (0xe10d60, 'd280c818', 0xe10d80, 'f2c07098', 24, 'KRES1', 'operation-mode change notification (0x1f) handler: docked mode 1600x900'),
+    (0xe10d5c, 'd280a016', 0xe10d74, 'f2c05a16', 22, 'KRES0', 'operation-mode change notification (0x1f) handler: handheld mode 1280x720'),
     # Aspect ratio cap 19:9 (float 0x40071c72): screens wider than 19:9 get black bars on both sides. The host supplies the float bit pattern (low 32 bits) of max(19/9, output width / height);
     # the original game outputs 16:9 (1600x900 / 1280x720) ⇒ still 19/9, behavior unchanged; iPhone 1952x900 (2.17:1) ⇒ 2.169, black bar width 0
-    (0x1663ee8, '52838e49', 0x1663eec, '72a800e9', 9, 'KASPECTUI', '界面常量缓冲 0x15 号槽 [屏宽, 屏高, 宽高比上限]：界面精灵着色器按它在上限以外画两侧黑柱（带约 20–30 像素向内的柔边，宿主另加余量把柔边推出屏幕）'),
-    (0xb152bc, '52838e48', 0xb152c0, '72a800e8', 8, 'KASPECT', '新画面模式视口：边距 = (屏宽 − 屏高 × 上限) / 2，经 0x85bc90 设居中视口'),
-    (0x23e888, '52838e48', 0x23e88c, '72a800e8', 8, 'KASPECT', '新画面模式坐标钳制（0x23e760）：x 夹进 [边距, 边距 + 屏高 × 上限]，宽屏两侧的指针 / 触摸不再被夹回中间'),
+    (0x1663ee8, '52838e49', 0x1663eec, '72a800e9', 9, 'KASPECTUI', 'UI constant buffer slot 0x15 [screen width, screen height, aspect ratio cap]: the UI sprite shader uses it to draw black bars on both sides beyond the cap (with a soft edge about 20–30 pixels inward; the host adds a margin that pushes the soft edge off screen)'),
+    (0xb152bc, '52838e48', 0xb152c0, '72a800e8', 8, 'KASPECT', 'new-picture mode viewport: margin = (screen width − screen height × cap) / 2, a centered viewport set through 0x85bc90'),
+    (0x23e888, '52838e48', 0x23e88c, '72a800e8', 8, 'KASPECT', 'new-picture mode coordinate clamp (0x23e760): x is clamped into [margin, margin + screen height × cap], so a pointer / touch at the sides of a wide screen is no longer clamped back to the middle'),
 ]}
 params = PARAMS.get(BUILD_ID, [])
 for oa, wa, ob_, wb, r, key, why in params:
     for o, w0 in ((oa, wa), (ob_, wb)):
         w = struct.unpack_from('<I', IMG, o)[0]
-        assert f'{w:08x}' == w0, f'参数位原指令不符 {o:#x}：{w:08x}'
-        assert o not in kinds and not any(lo <= o < hi for wseg in windows for lo, hi in [(wseg[0].address, wseg[-1].address + 4)]), f'参数位与改写点冲突 {o:#x}'
+        assert f'{w:08x}' == w0, f'parameter slot original instruction mismatch {o:#x}: {w:08x}'
+        assert o not in kinds and not any(lo <= o < hi for wseg in windows for lo, hi in [(wseg[0].address, wseg[-1].address + 4)]), f'parameter slot conflicts with a rewrite site {o:#x}'
     for o in range(oa + 4, ob_, 4):
         ins = dis(struct.unpack_from('<I', IMG, o)[0], o)
-        assert r not in regs_in(ins), f'参数位中间用到 x{r}：{o:#x} {ins.mnemonic} {ins.op_str}'
+        assert r not in regs_in(ins), f'x{r} is used between the parameter slot instructions: {o:#x} {ins.mnemonic} {ins.op_str}'
     start = here()
     tmp = 16 if r != 16 else 17
     emit(STUR(tmp, 31, -16)); emit(MRS_TPIDRRO(r)); emit_slot_addr(r, tmp, key); emit(LDRX(r, r)); emit(LDUR(tmp, 31, -16)); emit(B(here(), oa + 4))
@@ -995,12 +995,12 @@ for oa, wa, ob_, wb, r, key, why in params:
 rule_blocks = []
 if RULE_RUN:
     def run_branch(off, old, body, why):
-        assert struct.unpack_from('<I', IMG, off)[0] == old, f'Run跳板原字不符 {off:#x}'
+        assert struct.unpack_from('<I', IMG, off)[0] == old, f'Run trampoline original word mismatch {off:#x}'
         start = here()
         for word in body(start): emit(word)
         new = B(off, start)
         struct.pack_into('<I', IMG, off, new)
-        cuts.append((off, struct.pack('<I', old).hex(), struct.pack('<I', new).hex(), why, '全'))
+        cuts.append((off, struct.pack('<I', old).hex(), struct.pack('<I', new).hex(), why, 'all'))
         rule_blocks.append((start, bytes(patch[start - PATCH_OFF:]).hex(), why))
     def cbz(at, target, r, nonzero=False):
         delta = target-at; assert delta%4==0 and -(1<<20)<=delta<(1<<20)
@@ -1008,29 +1008,29 @@ if RULE_RUN:
     run_branch(0x6c6648, 0x34000060, lambda a: [
         0xb9400268, cbz(a+4,a+12,8,True), B(a+8,0x6c664c),
         cbz(a+12,a+20,0), B(a+16,0x6c664c), B(a+20,0x6c6654)],
-        'touch-run-v4：Run选择仅player0忽略精力门，非player按原stat返回；w8后继覆盖')
+        'touch-run-v4: Run selection ignores the stamina gate for player0 only, non-player returns by the original stat; w8 is overwritten afterwards')
     run_branch(0x6c6290, 0x710006df, lambda a: [
         0xb9400268, cbz(a+4,a+12,8,True), B(a+8,0x6c62ec), 0x710006df, B(a+16,0x6c6294)],
-        'touch-run-v4：原合法Run成本段仅player0跳stat10扣除/耗尽降走；非player保持原cmp')
+        'touch-run-v4: in the original legal Run cost section only player0 skips the stat10 deduction / drop to walking when exhausted; non-player keeps the original cmp')
 
 
     # After the original mode3 / currently controlled unit gate at client4abc60; the actual GetStat has already returned, W0 is preserved, and only for type0 is the STA auto Stop cancelled.
     run_branch(0x4ac368, 0x35000460, lambda a: [
         0xb9400268, cbz(a+4,a+12,8), B(a+8,a+16), B(a+12,0x4ac3f4),
         cbz(a+16,a+24,0), B(a+20,0x4ac3f4), B(a+24,0x4ac36c)],
-        'touch-run-v4：client当前受控Run3仅player0跳STA零值自动Stop；原getter值与真实松杆保留，非player保原门')
+        'touch-run-v4: client currently controlled Run3: only player0 skips the STA-zero auto Stop; the original getter value and real stick release stay, non-player keeps the original gate')
 
 
     # After the original unit null/type5 gate, with w8 still the original unitType; only player request 2 is normalized, and the other original action dispatch / eligibility checks run in full.
     run_branch(0x6c6580, 0x51000849, lambda a: [
         cbz(a,a+16,8,True), 0x51000849, cbz(a+8,a+16,9,True),
         0x52800062, 0x51000849, B(a+20,0x6c6584)],
-        'touch-run-v4：原通用合法移动仅player0请求Walk2规范为Run3，非player与其它请求保原，w8/原资格不改')
+        'touch-run-v4: original generic legal move: only a player0 Walk2 request is normalized to Run3, non-player and other requests unchanged, w8 / original eligibility unchanged')
 
 os.makedirs(outdir, exist_ok=True)
 P = lambda ext: os.path.join(outdir, f'{NAME}.{ext}')
 if FAR:   # patch area before the base: file = text + ro + data (padded to 16K) + patch area
-    assert len(patch) <= FRONT - 0x4000, f'补丁区 {len(patch):#x} 字节放不进首址前的 {FRONT:#x} | patch area of {len(patch):#x} bytes does not fit in the {FRONT:#x} before the base'
+    assert len(patch) <= FRONT - 0x4000, f'patch area of {len(patch):#x} bytes does not fit in the {FRONT:#x} before the base'
     open(P('patched.bin'), 'wb').write(IMG + bytearray(FILE_IMAGE_LEN - len(IMG)) + patch)
 else:
     open(P('patched.bin'), 'wb').write(IMG + bytearray(PATCH_OFF - len(IMG)) + patch)
@@ -1076,10 +1076,10 @@ if NAME == 'main':
     import hashlib, shutil
     BL = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', f'bootlist_{BUILD_ID}.tsv')
     if not os.path.isfile(BL):   # the public repository does not ship this list (each line carries the first bytes of an original resource block): without it there is no prefetch, so launch skips one ahead-of-time decode step and nothing else is affected
-        print('bootlist 没有启动块清单，跳过（不预取）。要用的话自己录一份：dm/tools/tact_bootlist.py')
+        print('bootlist: no boot block list, skipped (no prefetch). To use one, record it yourself: dm/tools/tact_bootlist.py')
     else:
         hd = open(BL, encoding='utf-8').readline().split()
-        if hd[-1:] != [BUILD_ID]: sys.exit(f'【红】{BL} 头行构建号 {hd[-1:]} 与 main {BUILD_ID} 不符')
+        if hd[-1:] != [BUILD_ID]: sys.exit(f'[RED] {BL} header build ID {hd[-1:]} does not match main {BUILD_ID}')
         shutil.copyfile(BL, os.path.join(outdir, 'bootlist.tsv'))
         sha = hashlib.sha256(open(BL, 'rb').read()).hexdigest()
         open(os.path.join(outdir, 'bootlist.sha256'), 'w').write(f'{sha}  bootlist.tsv\n')

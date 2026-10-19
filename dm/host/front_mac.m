@@ -52,7 +52,7 @@ typedef struct { void (*fn)(void); } guest_arg;
 static void *guest_tramp(void *p) {
     static char alt[65536];                       // The signal alternate stack is per thread; crash printing must also work on the guest thread
     stack_t ss = {.ss_sp = alt, .ss_size = sizeof alt}; sigaltstack(&ss, 0);
-    ((guest_arg *)p)->fn(); LOG("客体线程结束"); exit(0);
+    ((guest_arg *)p)->fn(); LOG("guest thread finished"); exit(0);
 }
 
 void front_run(void (*guest)(void)) {
@@ -112,10 +112,10 @@ int front_text_input(const char *title, const char *sub, const char *guide, cons
     __block NSString *text = nil;
     dispatch_sync(dispatch_get_main_queue(), ^{
         NSAlert *a = [NSAlert new];
-        a.messageText = title && *title ? @(title) : @"输入";
+        a.messageText = title && *title ? @(title) : @"Input";
         NSString *info = [NSString stringWithFormat:@"%s%s%s", sub ? sub : "", sub && *sub && guide && *guide ? "\n" : "", guide ? guide : ""];
         a.informativeText = info;
-        [a addButtonWithTitle:@"确定"]; [a addButtonWithTitle:@"取消"];
+        [a addButtonWithTitle:@"OK"]; [a addButtonWithTitle:@"Cancel"];
         NSTextField *f = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 300, 24)];
         f.stringValue = initial ? @(initial) : @"";
         if (guide && *guide) f.placeholderString = @(guide);

@@ -30,7 +30,7 @@ int main(void) {
             0x2A,0xD7,0xB1, 0x83, 0x0F,0x42,0x40,                    //     TimecodeScale = 0x0F4240 = 1000000
             0x44,0x89, 0x88, 0x40,0xB9,0xE9,0x00,0x00,0x00,0x00,0x00 //     Duration float64 6633.0
     };
-    CHECK(dur(a, sizeof a) == 6633000000ll, "float64 时长 6633 × 1ms = 6.633 s（读到 %lld）", (long long)dur(a, sizeof a));
+    CHECK(dur(a, sizeof a) == 6633000000ll, "float64 duration 6633 × 1ms = 6.633 s (read %lld)", (long long)dur(a, sizeof a));
     // (2) float32 + non-default TimecodeScale: Duration=float32 2000.0 (0x44FA0000), Scale=500000 => 1,000,000,000 ns; Segment of unknown length (0x01FFFFFFFFFFFFFF)
     static const uint8_t b[] = {
         0x1A,0x45,0xDF,0xA3, 0x80,
@@ -39,7 +39,7 @@ int main(void) {
             0x2A,0xD7,0xB1, 0x83, 0x07,0xA1,0x20,                    //     0x07A120 = 500000
             0x44,0x89, 0x84, 0x44,0xFA,0x00,0x00                     //     float32 2000.0
     };
-    CHECK(dur(b, sizeof b) == 1000000000ll, "float32 2000 × 0.5ms + 未知长度 Segment = 1.000 s（读到 %lld）", (long long)dur(b, sizeof b));
+    CHECK(dur(b, sizeof b) == 1000000000ll, "float32 2000 × 0.5ms + unknown-size Segment = 1.000 s (read %lld)", (long long)dur(b, sizeof b));
     // (3) Default TimecodeScale (absent from Info): Duration=float64 10033.0 (0x40C3988000000000) => 10,033,000,000 ns
     static const uint8_t c[] = {
         0x1A,0x45,0xDF,0xA3, 0x80,
@@ -47,15 +47,15 @@ int main(void) {
           0x15,0x49,0xA9,0x66, 0x8B,
             0x44,0x89, 0x88, 0x40,0xC3,0x98,0x80,0x00,0x00,0x00,0x00
     };
-    CHECK(dur(c, sizeof c) == 10033000000ll, "缺省 TimecodeScale = 1ms，10033 ⇒ 10.033 s（读到 %lld）", (long long)dur(c, sizeof c));
+    CHECK(dur(c, sizeof c) == 10033000000ll, "default TimecodeScale = 1ms, 10033 ⇒ 10.033 s (read %lld)", (long long)dur(c, sizeof c));
     // (4) Cluster encountered first, no Info => -1 (the caller reports a failure on this and gives no default)
     static const uint8_t d[] = { 0x1A,0x45,0xDF,0xA3, 0x80, 0x18,0x53,0x80,0x67, 0x85, 0x1F,0x43,0xB6,0x75, 0x80 };
-    CHECK(dur(d, sizeof d) == -1, "无 Info 先到 Cluster ⇒ -1（读到 %lld）", (long long)dur(d, sizeof d));
+    CHECK(dur(d, sizeof d) == -1, "no Info, Cluster comes first ⇒ -1 (read %lld)", (long long)dur(d, sizeof d));
     // (5) No Duration in Info => -1
     static const uint8_t e[] = { 0x1A,0x45,0xDF,0xA3, 0x80, 0x18,0x53,0x80,0x67, 0x8C, 0x15,0x49,0xA9,0x66, 0x87, 0x2A,0xD7,0xB1, 0x83, 0x0F,0x42,0x40 };
-    CHECK(dur(e, sizeof e) == -1, "无 Duration ⇒ -1（读到 %lld）", (long long)dur(e, sizeof e));
+    CHECK(dur(e, sizeof e) == -1, "no Duration ⇒ -1 (read %lld)", (long long)dur(e, sizeof e));
     // (6) Truncated (no data after the Segment header) => -1
-    CHECK(dur(a, 10) == -1, "截断 ⇒ -1");
-    printf(fails ? "t_movie 失败 %d/%d\n" : "t_movie 全过：%d/%d\n", fails ? fails : checks, checks);
+    CHECK(dur(a, 10) == -1, "truncated ⇒ -1");
+    printf(fails ? "t_movie failed %d/%d\n" : "t_movie all passed: %d/%d\n", fails ? fails : checks, checks);
     return fails != 0;
 }

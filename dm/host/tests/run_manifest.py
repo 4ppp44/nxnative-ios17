@@ -16,14 +16,14 @@ try:
  for line in (D/'main.cuts.tsv').read_text().splitlines():
   if line.startswith('#'):continue
   off,old,new,scope,why=line.split('\t',4)
-  if why.startswith('touch-run-v4：'):cuts[int(off,16)]=(old,new,scope)
- assert set(cuts)==set(expected),('剪口集合',set(cuts)^set(expected))
+  if why.startswith('touch-run-v4: '):cuts[int(off,16)]=(old,new,scope)
+ assert set(cuts)==set(expected),('cut set',set(cuts)^set(expected))
  def w(at):return struct.unpack_from('<I',b,at)[0]
  def branch(at):
   v=w(at);assert v&0xfc000000==0x14000000;imm=v&0x3ffffff
   return at+4*((imm^0x2000000)-0x2000000)
  for off,newword in expected.items():
-  old,new,scope=cuts[off];assert scope=='全';assert orig[off:off+4]==bytes.fromhex(old);assert b[off:off+4]==bytes.fromhex(new)
+  old,new,scope=cuts[off];assert scope=='all';assert orig[off:off+4]==bytes.fromhex(old);assert b[off:off+4]==bytes.fromhex(new)
   if newword is not None:assert w(off)==newword
  assert branch(0x369a90)==0x369900 and branch(0x6dcec0)==0x6dce50
  assert len(blocks)==4
@@ -46,6 +46,6 @@ try:
   else:
    assert len(body)==28 and branch(off+8)==off+16 and branch(off+12)==0x4ac3f4 and w(off+16)==0x34000040 and branch(off+20)==0x4ac3f4 and branch(off+24)==0x4ac36c
  assert seen=={0x6c6648,0x6c6290,0x4ac368,0x6c6580}
- print('RUN_MANIFEST OK 原像/成像hash、buildid、15剪口白名单、4跳板hash/范围/结构/入口B')
+ print('RUN_MANIFEST OK original/image hash, buildid, 15-cut whitelist, 4 trampolines hash/range/structure/entry B')
 except (AssertionError,KeyError,OSError,ValueError,StopIteration) as e:
  print('RUN_MANIFEST FAIL',type(e).__name__,str(e));sys.exit(1)

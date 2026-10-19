@@ -25,30 +25,30 @@ int main(void) {
     *(uint64_t *)(unit + 0x38) = (uint64_t)(uintptr_t)path; *(uint64_t *)(path + 0x20) = (uint64_t)(uintptr_t)room;
     *(uint64_t *)(room + 0x18) = (uint64_t)(uintptr_t)ex; *(uint64_t *)(ex + 0x90) = (uint64_t)(uintptr_t)level; *(int32_t *)(level + 0x1f8) = 59;
     uint64_t u = (uint64_t)(uintptr_t)unit;
-    CHECK(dm_unit_level(u) == 59, "完整链应读到 59，读到 %d", dm_unit_level(u));
-    CHECK(dm_unit_level_ptr(u) == (uint64_t)(uintptr_t)level, "完整链应返回关卡结构指针");
-    CHECK(old_level(u) == 59, "旧写法在完整链上也应读到 59（对照）");
+    CHECK(dm_unit_level(u) == 59, "complete chain should read 59, read %d", dm_unit_level(u));
+    CHECK(dm_unit_level_ptr(u) == (uint64_t)(uintptr_t)level, "complete chain should return the level struct pointer");
+    CHECK(old_level(u) == 59, "old code should also read 59 on the complete chain (control)");
 
     // (1) Has a path, room is null (the client player during an act-change loading)
     *(uint64_t *)(path + 0x20) = 0;
-    int sg = old_dies(u); CHECK(sg == SIGSEGV || sg == SIGBUS, "旧写法在「有路径、房间为空」上应崩（红），实际信号 %d", sg);
-    CHECK(dm_unit_level(u) == 0 && dm_unit_level_ptr(u) == 0, "新写法在「有路径、房间为空」上应返回 0");
+    int sg = old_dies(u); CHECK(sg == SIGSEGV || sg == SIGBUS, "old code should crash (red) on 'path present, room null', actual signal %d", sg);
+    CHECK(dm_unit_level(u) == 0 && dm_unit_level_ptr(u) == 0, "new code should return 0 on 'path present, room null'");
     // (2) Path is null
     *(uint64_t *)(path + 0x20) = (uint64_t)(uintptr_t)room; *(uint64_t *)(unit + 0x38) = 0;
-    sg = old_dies(u); CHECK(sg == SIGSEGV || sg == SIGBUS, "旧写法在「路径为空」上应崩（红），实际信号 %d", sg);
-    CHECK(dm_unit_level(u) == 0 && dm_unit_level_ptr(u) == 0, "新写法在「路径为空」上应返回 0");
+    sg = old_dies(u); CHECK(sg == SIGSEGV || sg == SIGBUS, "old code should crash (red) on 'path null', actual signal %d", sg);
+    CHECK(dm_unit_level(u) == 0 && dm_unit_level_ptr(u) == 0, "new code should return 0 on 'path null'");
     // (3) Unit is null
-    sg = old_dies(0); CHECK(sg == SIGSEGV || sg == SIGBUS, "旧写法在「单位为空」上应崩（红），实际信号 %d", sg);
-    CHECK(dm_unit_level(0) == 0 && dm_unit_level_ptr(0) == 0, "新写法在「单位为空」上应返回 0");
+    sg = old_dies(0); CHECK(sg == SIGSEGV || sg == SIGBUS, "old code should crash (red) on 'unit null', actual signal %d", sg);
+    CHECK(dm_unit_level(0) == 0 && dm_unit_level_ptr(0) == 0, "new code should return 0 on 'unit null'");
     // (4) Room present, room +0x18 null; (5) +0x90 null (the last two steps of the chain)
     *(uint64_t *)(unit + 0x38) = (uint64_t)(uintptr_t)path; *(uint64_t *)(room + 0x18) = 0;
-    CHECK(dm_unit_level(u) == 0, "房间 +0x18 为空应返回 0");
+    CHECK(dm_unit_level(u) == 0, "room +0x18 null should return 0");
     *(uint64_t *)(room + 0x18) = (uint64_t)(uintptr_t)ex; *(uint64_t *)(ex + 0x90) = 0;
-    CHECK(dm_unit_level(u) == 0, "关卡指针为空应返回 0");
+    CHECK(dm_unit_level(u) == 0, "null level pointer should return 0");
     *(uint64_t *)(ex + 0x90) = (uint64_t)(uintptr_t)level;
-    CHECK(dm_unit_level(u) == 59, "链接回去后应再读到 59");
+    CHECK(dm_unit_level(u) == 59, "should read 59 again after relinking");
     // Taking the room chain head when the level pointer is null: returns 0 (previously each place did rd(lv + 0x10) directly and read address 0x10)
-    CHECK(dm_level_rooms(0) == 0, "关卡指针为空时房间链头应为 0");
-    *(uint64_t *)(level + 0x10) = (uint64_t)(uintptr_t)room; CHECK(dm_level_rooms((uint64_t)(uintptr_t)level) == (uint64_t)(uintptr_t)room, "关卡非空时应读到 +0x10 的房间");
-    printf("t_unit_level: %d 项，%d 失败\n", checks, fails); return fails != 0;
+    CHECK(dm_level_rooms(0) == 0, "room list head should be 0 for a null level pointer");
+    *(uint64_t *)(level + 0x10) = (uint64_t)(uintptr_t)room; CHECK(dm_level_rooms((uint64_t)(uintptr_t)level) == (uint64_t)(uintptr_t)room, "non-null level should read the room at +0x10");
+    printf("t_unit_level: %d checks, %d failed\n", checks, fails); return fails != 0;
 }

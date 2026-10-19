@@ -1,2 +1,2 @@
-// 生成文件（dm/gfx/tools/dmsh_chain.py --header，游戏 01006BB00C6F0000）：本源码树期望的 B 着色器库翻译链版本（缺省选项）；宿主只加载 <库目录>/b-<V>/
-#define DMSH_CHAIN "d84b01f127bd"
+// Generated file (dm/gfx/tools/dmsh_chain.py --header, game 01006BB00C6F0000): the B shader library translation chain version this source tree expects (default options); the host loads only <library dir>/b-<V>/
+#define DMSH_CHAIN "e58ec56c1d38"

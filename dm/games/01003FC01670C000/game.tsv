@@ -1,37 +1,31 @@
-# 十三机兵防卫圈（Switch，基础版 v0 + 更新 1.10 = v65536）的游戏档案。移植中：Mac 上新游戏能从序章进到第一场战斗
 # Game profile of 13 Sentinels: Aegis Rim (Switch, base game v0 + update 1.10 = v65536). In bring-up: on the Mac a new game gets through the prologue into the first battle
-# 格式见 dm/games/README.md | Format: see dm/games/README.md
-# Vanillaware 自己的引擎，SDK 11.4.3（sdk 与 subsdk0 与银河战士 生存恐惧的逐字节相同），NVN；数据全在 6 个 CRI CPK 里（ROBO_*.CPK），音频 CRI ADX2（acb / awb），影片 CRI USM。
-# 着色器不在 RomFS：838 个 GLSLC 编译输出（魔数 0x19866891）编进了 main 的只读段，由 .data 里的表引用（shader_split.py 读，见 shader_main_glslc）
+# Format: see dm/games/README.md
 # Vanillaware's own engine, SDK 11.4.3 (sdk and subsdk0 are byte-identical to Metroid Dread's), NVN; all data is in 6 CRI CPK archives (ROBO_*.CPK), audio is CRI ADX2 (acb / awb), movies are CRI USM.
 # The shaders are not in RomFS: 838 GLSLC compiler outputs (magic 0x19866891) are compiled into main's read-only segment and referenced from a table in .data (read by shader_split.py, see shader_main_glslc)
 
-# ---- 身份 | Identity ----
+# ---- Identity ----
 title_id	01003FC01670C000
 program_id	01003FC01670C000
 
 # ---- App ----
-# 游戏名：只给档案列表与 Mac 窗口标题当标签；iOS App 名取基础版 NSP 里的游戏名，包名按基础版标题号（build_ipa.sh / NSP 脚本）
 # Game name: only a label for profile listings and the Mac window title; the iOS app name is the game name in the base NSP, and the bundle ID comes from the base game title ID (build_ipa.sh / NSP script)
 name	13 Sentinels: Aegis Rim
 ipa	13Sentinels.ipa
 app_category	public.app-category.role-playing-games
 
-# ---- 版本 | Versions ----
-# 只解了合并 1.10 的那份；基础版单独的构建号用到时再补 | only the merged 1.10 copy is extracted; the base game's own build IDs are added when needed
+# ---- Versions ----
+# only the merged 1.10 copy is extracted; the base game's own build IDs are added when needed
 build	v65536	1.10	main=4b632573ca5c160eabb70519fb622718	subsdk0=507f19d1240d09d00992248e8a0fd77e	sdk=2d369d9999e3e10e665106f840ffff9b
 package	v65536
 shader_versions	v65536
 
-# ---- 文件 | Files ----
-# 装载顺序同 Horizon：main、subsdk*、sdk（subsdk0 = NintendoSDK_movie 11.4.3） | load order as on Horizon: main, subsdk*, sdk (subsdk0 = NintendoSDK_movie 11.4.3)
+# ---- Files ----
+# load order as on Horizon: main, subsdk*, sdk (subsdk0 = NintendoSDK_movie 11.4.3)
 modules	main subsdk0 sdk
 romfs_marker	ROBO_US.CPK
 zip_store	.CPK:.metallib
 
-# ---- 内存 | Memory ----
-# NPDM 不声明系统资源（META +0x14 = 0）：走 SetHeapSize。main 的 bss 只有约 21 MB。实测（DM_SVC=1）：堆按「池 − 已用」要 0xc9400000（3.14 GB）；别名区只在 SDK 初始化时映射一页；
-# 线程栈经 MapMemory 放进栈区。块 = 前置 256 MB + 别名区 256 MB + 栈区 256 MB + 堆区 3.25 GB = 4 GB。Mac 上进第一场战斗时常驻约 2.2 GB
+# ---- Memory ----
 # The NPDM declares no system resource (META +0x14 = 0): the game uses SetHeapSize. main's bss is only about 21 MB. Measured (DM_SVC=1): the heap request is pool − used = 0xc9400000 (3.14 GB); the alias region gets one page during SDK initialization;
 # thread stacks go into the stack region through MapMemory. Block = 256 MB in front + 256 MB alias region + 256 MB stack region + 3.25 GB heap region = 4 GB. On the Mac about 2.2 GB is resident in the first battle
 mem_reserve	0x100000000
@@ -39,8 +33,8 @@ mem_alias	0x10000000
 mem_stack	0x10000000
 app_pool	0xCD500000
 
-# ---- NVN 驱动常量段（dmsh_build.py 出包、nvn_mtl.m 运行时现填） | NVN driver constant segments (dmsh_build.py at packaging, nvn_mtl.m filled at run time) ----
-# 沿用马力欧的。全部 751 个着色器按这组基址翻译，绑定都解出了槽号（dmsh_build 报「绑定没解出槽号的着色器 0」）；贴图走无绑定句柄 | Mario's values. All 751 shaders translate with these bases and every binding resolves to a slot (dmsh_build: 0 shaders with unresolved bindings); textures go through bindless handles
+# ---- NVN driver constant segments (dmsh_build.py at packaging, nvn_mtl.m filled at run time) ----
+# Mario's values. All 751 shaders translate with these bases and every binding resolves to a slot (dmsh_build: 0 shaders with unresolved bindings); textures go through bindless handles
 nvn_tex_base	0x20
 nvn_tex_slots	32
 nvn_samp_base	0x568
@@ -48,10 +42,9 @@ nvn_img_base	0x120
 nvn_img_slots	8
 nvn_ssbo_bases	vs=0x110 ps=0x510 cs=0x310
 
-# ---- 着色器拆分（shader_split.py；main 里的 GLSLC 输出） | Shader split (shader_split.py; GLSLC outputs in main) ----
+# ---- Shader split (shader_split.py; GLSLC outputs in main) ----
 shader_main_glslc	on
-# 每份 GLSLC 输出各建一个单阶段程序（初始化时 838 次 ProgramSetShaders），绘制时 BindProgram 按阶段位拼顶点、像素：配对表按覆盖写（shader_split.py separable_pairs）
 # Each GLSLC output becomes a single-stage program (838 ProgramSetShaders at startup), and BindProgram's stage bits combine vertex and pixel per draw: the pair table is written as a cover (shader_split.py separable_pairs)
 shader_separable	on
 shader_groups	ROBO=cpk
-shader_note	十三机兵防卫圈着色器
+shader_note	13 Sentinels: Aegis Rim shaders

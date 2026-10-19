@@ -8,13 +8,13 @@ os.environ.setdefault('DMX_ROOT', os.path.join(DM_ROOT, 'data/switch/3.3.94012/U
 import dmx
 PC = os.path.join(DM_ROOT, 'data/assets-src/raw')
 SAMPLES = [
-    ('hd/vfx/textures/gradient/T_FX_perlin_wipe_03.texture', 'RGBA8 256² 同分辨率'),
-    ('hd/vfx/textures/gradient/T_FX_portal_gradient.texture', 'RGBA8 256×16 非方形 同分辨率'),
-    ('hd/env/texture/terrain/path/066_PATH.texture', 'BC4 32² 同分辨率'),
-    ('hd/debug/wasted_mip_size_2048.texture', 'BC3 sRGB 2048² 12 级 同分辨率'),
-    ('hd/items/armor/armor/plate_mail/textures/armor_plate_mail_alb.texture', 'BC3 sRGB 256²（PC 1024²）降分辨率'),
-    ('hd/env/texture/global/flow/act4/lava/lava_lavaNS_FLOW.texture', 'BC1 64²（PC 256²）降分辨率'),
-    ('hd/character/enemy/fingermage1/Textures/fingermage_KTINT.texture', 'BC3 256²（PC 1024²）降分辨率'),
+    ('hd/vfx/textures/gradient/T_FX_perlin_wipe_03.texture', 'RGBA8 256² same resolution'),
+    ('hd/vfx/textures/gradient/T_FX_portal_gradient.texture', 'RGBA8 256×16 non-square same resolution'),
+    ('hd/env/texture/terrain/path/066_PATH.texture', 'BC4 32² same resolution'),
+    ('hd/debug/wasted_mip_size_2048.texture', 'BC3 sRGB 2048² 12 levels same resolution'),
+    ('hd/items/armor/armor/plate_mail/textures/armor_plate_mail_alb.texture', 'BC3 sRGB 256² (PC 1024²) reduced resolution'),
+    ('hd/env/texture/global/flow/act4/lava/lava_lavaNS_FLOW.texture', 'BC1 64² (PC 256²) reduced resolution'),
+    ('hd/character/enemy/fingermage1/Textures/fingermage_KTINT.texture', 'BC3 256² (PC 1024²) reduced resolution'),
 ]
 out = sys.argv[1]
 os.makedirs(f'{out}/dm', exist_ok=True); os.makedirs(f'{out}/pc', exist_ok=True)
@@ -23,4 +23,4 @@ with open(f'{out}/list.tsv', 'w') as f:
         open(f'{out}/dm/{i}.texture', 'wb').write(dmx.get('data:data/' + p))
         open(f'{out}/pc/{i}.texture', 'wb').write(open(os.path.join(PC, p), 'rb').read())
         f.write(f'{i}\t{p}\t{why}\n')
-print(len(SAMPLES), '对样本 →', out)
+print(len(SAMPLES), 'sample pairs →', out)

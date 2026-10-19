@@ -60,10 +60,10 @@ int touch_fill_n(void *out, int max, uint64_t now_ns) {
     // DM_TOUCH_LOG=1 (acceptance diagnostics): each read with non-zero touch points logs one line -- sample number, touch count, and for each point finger_id / panel x,y / attributes (1 Start, 2 End); capped at 500 lines
     static int lg = -1, nl; if (lg < 0) lg = getenv("DM_TOUCH_LOG") != NULL;
     if (lg && k && nl < 500) {
-        char b[256]; int m = snprintf(b, sizeof b, "触屏读 采样 %lld 触点 %d", (long long)samp, k);
+        char b[256]; int m = snprintf(b, sizeof b, "touch read sample %lld points %d", (long long)samp, k);
         for (int i = 0; i < k && m < (int)sizeof b - 40; i++) { int32_t v[4]; memcpy(v, o + 0x10 + 0x28 * i + 0x08, 16);
-            m += snprintf(b + m, sizeof b - m, " | #%d (%d,%d) 属性 %d", v[1], v[2], v[3], v[0]); }
-        LOG("%s", b); if (++nl == 500) LOG("DM_TOUCH_LOG 满 500 行，停记");
+            m += snprintf(b + m, sizeof b - m, " | #%d (%d,%d) attribute %d", v[1], v[2], v[3], v[0]); }
+        LOG("%s", b); if (++nl == 500) LOG("DM_TOUCH_LOG reached 500 lines, logging stopped");
     }
     return k;
 }

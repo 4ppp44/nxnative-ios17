@@ -1,42 +1,37 @@
-# 超级马力欧 3D 世界 + 狂怒世界（Switch，基础版 v0 + 更新 1.2.2 = v262144）的游戏档案。移植中：Mac 上 3D 世界进到 1-1，狂怒世界进到开放世界
 # Game profile of Super Mario 3D World + Bowser's Fury (Switch, base game v0 + update 1.2.2 = v262144). In bring-up: on the Mac 3D World reaches World 1-1 and Bowser's Fury its open world
-# 格式见 dm/games/README.md | Format: see dm/games/README.md
-# 任天堂 EPD 引擎（sead / agl，NintendoWare G3d / Ui2d / Vfx / Atk），SDK 10.4.0，NVN；RomFS 几乎全是 Yaz0 压缩的 SARC（.szs）。
-# 着色器：ShaderData/*.szs 里的 bfsha（BNSH）与 agl sharcb（BAHS），EffectData 的粒子特效（BNSH），少数 LayoutData 布局（BNSH），SystemData/AglResource.szs（BAHS）
+# Format: see dm/games/README.md
 # Nintendo EPD's engine (sead / agl, NintendoWare G3d / Ui2d / Vfx / Atk), SDK 10.4.0, NVN; RomFS is almost entirely Yaz0-compressed SARC archives (.szs).
 # Shaders: bfsha (BNSH) and agl sharcb (BAHS) in ShaderData/*.szs, particle effects in EffectData (BNSH), a few layouts in LayoutData (BNSH), SystemData/AglResource.szs (BAHS)
 
-# ---- 身份 | Identity ----
+# ---- Identity ----
 title_id	010028600EBDA000
 program_id	010028600EBDA000
 
 # ---- App ----
-# 游戏名：只给档案列表与 Mac 窗口标题当标签；iOS App 名取基础版 NSP 里的游戏名，包名按基础版标题号（build_ipa.sh / NSP 脚本）
 # Game name: only a label for profile listings and the Mac window title; the iOS app name is the game name in the base NSP, and the bundle ID comes from the base game title ID (build_ipa.sh / NSP script)
 name	Super Mario 3D World + Bowser's Fury
 ipa	Mario3DWorld.ipa
 app_category	public.app-category.action-games
-# 虚拟手柄首次用 3D 布局（十字键、右摇杆、L3 / R3）：右摇杆转视角 | the virtual gamepad starts in the 3D layout (D-pad, right stick, L3 / R3): the right stick turns the camera
+# the virtual gamepad starts in the 3D layout (D-pad, right stick, L3 / R3): the right stick turns the camera
 pad_layout	full
 feedback_snap	66a71a3081b91b9a 30e3ccb0bd304ead
 
-# ---- 版本 | Versions ----
-# 只解了合并 1.2.2 的那份；基础版单独的构建号用到时再补 | only the merged 1.2.2 copy is extracted; the base game's own build IDs are added when needed
+# ---- Versions ----
+# only the merged 1.2.2 copy is extracted; the base game's own build IDs are added when needed
 build	v262144	1.2.2	main=635fe25c7cb69847f41b49f19cd9aa89	sdk=204eaef83fe5e5617d0787c8ef01a080
 package	v262144
 shader_versions	v262144
 
-# ---- 文件 | Files ----
+# ---- Files ----
 modules	main sdk
 romfs_marker	ShaderData/RenderMaterial.szs
 zip_store	.szs:.bfstm:.metallib
 
-# ---- 共享字体 | Shared fonts ----
-# 共享字体记作类型 0、不调 Decode，地址原样交给 ScalableFontEngine::LoadFont：地址处要直接是 TTF（main+0x975658）| shared fonts are recorded as type 0, no Decode, and the address goes as is to ScalableFontEngine::LoadFont: it must point at the TTF itself (main+0x975658)
+# ---- Shared fonts ----
+# shared fonts are recorded as type 0, no Decode, and the address goes as is to ScalableFontEngine::LoadFont: it must point at the TTF itself (main+0x975658)
 shared_font	ttf
 
-# ---- 内存 | Memory ----
-# NPDM 不声明系统资源（META +0x14 = 0）：走 SetHeapSize。main 的 bss 只有约 7 MB。先用十三机兵防卫圈的分区（块 4 GB = 前置 256 MB + 别名区 256 MB + 栈区 256 MB + 堆区 3.25 GB），实测后再定
+# ---- Memory ----
 # The NPDM declares no system resource (META +0x14 = 0): the game uses SetHeapSize. main's bss is only about 7 MB. Starts from 13 Sentinels' partition (4 GB block = 256 MB in front + 256 MB alias region + 256 MB stack region + 3.25 GB heap region) until measured
 mem_reserve	0x100000000
 mem_alias	0x10000000
@@ -44,11 +39,11 @@ mem_stack	0x10000000
 app_pool	0xCD500000
 
 # ---- NVN ----
-# 游戏核对 NVN API 版本：主版本 == 53、次版本 ≥ 313（main+0x711c88），否则不建设备 | the game checks the NVN API version: major == 53 and minor >= 313 (main+0x711c88), else it creates no device
+# the game checks the NVN API version: major == 53 and minor >= 313 (main+0x711c88), else it creates no device
 device_api	53.313
 
-# ---- NVN 驱动常量段（dmsh_build.py 出包、nvn_mtl.m 运行时现填） | NVN driver constant segments (dmsh_build.py at packaging, nvn_mtl.m filled at run time) ----
-# 先沿用马力欧的，按全库着色器实测后再定 | Mario's values until measured over all shaders
+# ---- NVN driver constant segments (dmsh_build.py at packaging, nvn_mtl.m filled at run time) ----
+# Mario's values until measured over all shaders
 nvn_tex_base	0x20
 nvn_tex_slots	32
 nvn_samp_base	0x568
@@ -56,6 +51,6 @@ nvn_img_base	0x120
 nvn_img_slots	8
 nvn_ssbo_bases	vs=0x110 ps=0x510 cs=0x310
 
-# ---- 着色器拆分（shader_split.py） | Shader split (shader_split.py) ----
+# ---- Shader split (shader_split.py) ----
 shader_groups	/ShaderData/=shader /EffectData/=effect /LayoutData/=layout /SystemData/=agl
-shader_note	超级马力欧 3D 世界 + 狂怒世界着色器
+shader_note	Super Mario 3D World + Bowser's Fury shaders

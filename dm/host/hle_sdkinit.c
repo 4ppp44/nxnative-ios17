@@ -4,12 +4,12 @@
 // SetResultHandledByApplication only write SDK-internal switches and are not taken over.
 #include "hle.h"
 
-static void once(const char *what) { LOG("init 接管：%s（空操作）", what); }
+static void once(const char *what) { LOG("init takeover: %s (no-op)", what); }
 
-HLE_FORCE("nndiagStartup", "连 lm 日志服务；诊断日志改由宿主直接输出", void, h_nndiagStartup, void) { once("nndiagStartup"); }
-HLE_FORCE("_ZN2nn2oe10InitializeEv", "连 am/oe 运行环境服务；运行环境查询逐个接成宿主默认值", void, h_oe_Initialize, void) { once("oe::Initialize"); }
-HLE_FORCE("_ZN2nn3aoc10InitializeEv", "追加内容(DLC)服务：不建会话（无服务进程）；已拥有清单由 hle_misc.c 的 aoc 接口给出（术士君临，非空）", void, h_aoc_Initialize, void) { once("aoc::Initialize"); }
-HLE_FORCE("_ZN2nn3err26InitializeContextWriterApiEv", "连 err 错误上下文服务；宿主不上报", void, h_err_InitCtx, void) { once("err::InitializeContextWriterApi"); }
-HLE_FORCE("_ZN2nn2fs24InitializeForApplicationEv", "连 fsp-srv 文件服务；文件接口接宿主文件系统 + RomFS", void, h_fs_InitApp, void) { once("fs::InitializeForApplication"); }
-HLE_FORCE("_ZN2nn4pctl10InitializeEv", "连 pctl 家长控制服务；单机无家长控制", void, h_pctl_Initialize, void) { once("pctl::Initialize"); }
-HLE_FORCE("_ZN2nn4diag34InitializeApplicationAbortObserverEv", "注册到系统的中止观察；宿主崩溃由信号处理打印", void, h_diag_AbortObs, void) { once("diag::InitializeApplicationAbortObserver"); }
+HLE_FORCE("nndiagStartup", "connect to the lm log service; the host prints diagnostic logs itself", void, h_nndiagStartup, void) { once("nndiagStartup"); }
+HLE_FORCE("_ZN2nn2oe10InitializeEv", "connect to the am/oe environment services; environment queries are wired one by one to host defaults", void, h_oe_Initialize, void) { once("oe::Initialize"); }
+HLE_FORCE("_ZN2nn3aoc10InitializeEv", "add-on content (DLC) service: no session opened (no service process); the owned list comes from the aoc interface in hle_misc.c (Reign of the Warlock, non-empty)", void, h_aoc_Initialize, void) { once("aoc::Initialize"); }
+HLE_FORCE("_ZN2nn3err26InitializeContextWriterApiEv", "connect to the err error context service; the host does not report", void, h_err_InitCtx, void) { once("err::InitializeContextWriterApi"); }
+HLE_FORCE("_ZN2nn2fs24InitializeForApplicationEv", "connect to the fsp-srv file service; the file interface goes to the host file system + RomFS", void, h_fs_InitApp, void) { once("fs::InitializeForApplication"); }
+HLE_FORCE("_ZN2nn4pctl10InitializeEv", "connect to the pctl parental controls service; single-player has no parental controls", void, h_pctl_Initialize, void) { once("pctl::Initialize"); }
+HLE_FORCE("_ZN2nn4diag34InitializeApplicationAbortObserverEv", "register with the system's abort observer; host crashes are printed by the signal handler", void, h_diag_AbortObs, void) { once("diag::InitializeApplicationAbortObserver"); }

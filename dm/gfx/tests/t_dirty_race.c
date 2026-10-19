@@ -21,7 +21,7 @@ void crash_install(void);
 static int g_fail;
 #define EXPECT(name, want, got) do { \
     long long want_ = (long long)(want), got_ = (long long)(got); \
-    printf("%-58s 期望 %-4lld → 真结果 %-4lld %s\n", name, want_, got_, want_ == got_ ? "✓" : "✗"); \
+    printf("%-58s expected %-4lld → got %-4lld %s\n", name, want_, got_, want_ == got_ ? "✓" : "✗"); \
     if (want_ != got_) g_fail++; \
 } while (0)
 
@@ -43,15 +43,15 @@ int main(void) {
     atomic_store(&g_armed, 1);
     nvn_dirty_protect(g_page, 2 * pg);                       // A: set the state -> (B cuts in) -> mprotect lands
     for (int i = 0; i < 2000 && !atomic_load(&g_b_done); i++) usleep(1000);
-    EXPECT("乙的写前解保护在 2 秒内返回", 1, atomic_load(&g_b_done));
-    if (!atomic_load(&g_b_done)) { printf("t_dirty_race：乙没返回，后面的项不测\n"); return 1; }
+    EXPECT("B's unprotect-before-write returns within 2 seconds", 1, atomic_load(&g_b_done));
+    if (!atomic_load(&g_b_done)) { printf("t_dirty_race: B did not return, skipping the remaining checks\n"); return 1; }
     pthread_join(tb, NULL);
     int fd = open("/dev/zero", O_RDONLY); g_page[pg] = 0;     // Nobody has unprotected the second page, so this write goes through the page-fault handler (control: the normal path works)
     ssize_t r = read(fd, g_page, 16);                        // The host write that B is about to make: a system call writing straight into the page
-    EXPECT("乙解完保护后往这页读文件：读到的字节数 = 请求的 16", 16, r);
-    if (r == 16) { ((volatile uint8_t *)g_page)[1] = 0x5a; EXPECT("直接写这页不卡、读回是写进去的值", 0x5a, g_page[1]); }
-    else { printf("  （read 失败 errno=%d；页只读而状态为「无」，直接写会在缺页处理里空转，这一项不执行）\n", errno); g_fail++; }
-    EXPECT("这次写被记成脏（对设只读前的戳）", 1, nvn_dirty_since(g_page, 16, stamp));
+    EXPECT("file read into the page after B unprotects it: bytes read = the 16 requested", 16, r);
+    if (r == 16) { ((volatile uint8_t *)g_page)[1] = 0x5a; EXPECT("direct write to the page does not hang and reads back as written", 0x5a, g_page[1]); }
+    else { printf("  (read failed errno=%d; the page is read-only while its state is 'none', a direct write would spin in the page-fault handler, so this check is skipped)\n", errno); g_fail++; }
+    EXPECT("this write is recorded as dirty (against a stamp from before set-read-only)", 1, nvn_dirty_since(g_page, 16, stamp));
     close(fd);
-    printf("t_dirty_race：%s\n", g_fail ? "不通" : "全通"); return g_fail != 0;
+    printf("t_dirty_race: %s\n", g_fail ? "FAILED" : "all passed"); return g_fail != 0;
 }

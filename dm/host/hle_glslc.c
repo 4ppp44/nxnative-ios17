@@ -9,23 +9,23 @@
 
 static void capture(const void *obj) {
     static const char *dir; static int init;
-    if (!init) { init = 1; dir = getenv("DM_GLSLC_CAPTURE"); if (dir) { mkdir(dir, 0755); LOG("glslc：运行时编译的输出存到 %s", dir); } }
+    if (!init) { init = 1; dir = getenv("DM_GLSLC_CAPTURE"); if (dir) { mkdir(dir, 0755); LOG("glslc: run-time compile outputs are saved to %s", dir); } }
     if (!dir) return;
     const uint8_t *const *res = *(const uint8_t *const *const *)obj;
     if (!res || !res[0] || !res[1] || !res[0][0xc] || res[0][0xd]) return;
     const uint8_t *out = res[1]; uint32_t n = *(const uint32_t *)(out + 0x44);
-    if (*(const uint32_t *)out != 0x19866891 || n < 0x48 || n > (64u << 20)) { LOG("【红】glslc：输出头不认识（魔数 %#x 长 %#x），不存", *(const uint32_t *)out, n); return; }
+    if (*(const uint32_t *)out != 0x19866891 || n < 0x48 || n > (64u << 20)) { LOG("[RED] glslc: unknown output header (magic %#x length %#x), not saved", *(const uint32_t *)out, n); return; }
     uint64_t h = 0xcbf29ce484222325ull; for (uint32_t i = 0; i < n; i++) h = (h ^ out[i]) * 0x100000001b3ull;
     char path[1024]; snprintf(path, sizeof path, "%s/%016llx.glslc", dir, (unsigned long long)h);
     struct stat st; if (!stat(path, &st)) return;
-    FILE *f = fopen(path, "wb"); if (!f) { LOG("【红】glslc：写不了 %s", path); return; }
+    FILE *f = fopen(path, "wb"); if (!f) { LOG("[RED] glslc: cannot write %s", path); return; }
     fwrite(out, 1, n, f); fclose(f);
-    LOG("glslc：存下运行时编译的输出 %s（%u 字节）", path, n);
+    LOG("glslc: saved a run-time compile output %s (%u bytes)", path, n);
 }
 
-HLE_FORCE("glslcCompile", "运行时 GLSL 编译（游戏自带 GLSLC 照常编译；DM_GLSLC_CAPTURE 时把输出存盘供离线翻译）", uint8_t, h_glslc_Compile, void *obj) {
+HLE_FORCE("glslcCompile", "run-time GLSL compile (the game's own GLSLC compiles as usual; with DM_GLSLC_CAPTURE the outputs are saved to disk for offline translation)", uint8_t, h_glslc_Compile, void *obj) {
     static uint8_t (*orig)(void *);
-    if (!orig && !(orig = guest_sym("glslcCompile"))) die("缺 glslcCompile");
+    if (!orig && !(orig = guest_sym("glslcCompile"))) die("glslcCompile missing");
     uint8_t ok = orig(obj);
     if (ok) capture(obj);
     return ok;

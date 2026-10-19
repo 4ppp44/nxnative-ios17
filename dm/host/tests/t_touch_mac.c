@@ -68,24 +68,24 @@ int main(void) {
     ui_cb("FrontEndNavigation", "ToGame", "");
     ui_cb("PanelManager", "UnloadPanel", "LoadScreenPanel"); test_loadscreen_down = 1;
     dm_touch_host_step(0, &b, &lx, &ly, &rx, &ry);
-    CHECK(lx == 0 && ly == 0, "down 只建立摇杆原点");
+    CHECK(lx == 0 && ly == 0, "down only sets the stick origin");
     for (test_tick = 101; test_tick <= 162; test_tick++) {
         b = 0; lx = ly = rx = ry = 0;
         dm_touch_host_step(0, &b, &lx, &ly, &rx, &ry);
     }
-    CHECK(lx > 0 && ly == 0, "move 写入宿主左摇杆");
+    CHECK(lx > 0 && ly == 0, "move writes the host left stick");
     test_tick = 162;
     b = 0; lx = ly = rx = ry = 0; dm_touch_host_step(0, &b, &lx, &ly, &rx, &ry);
-    CHECK(lx > 0 && ly == 0, "同一拍重复采样不推进脚本时间");
+    CHECK(lx > 0 && ly == 0, "repeated sampling in the same tick does not advance script time");
     test_tick = 212;
     b = 0; lx = ly = rx = ry = 0; dm_touch_host_step(0, &b, &lx, &ly, &rx, &ry);
-    CHECK(lx == 0 && ly == 0, "up 清空宿主左摇杆");
-    // Cleanup of the mode switch transaction (the "leave" registered in dm_mode_items.h): key presses on the player's behalf queued by touch are voided on a switch; ones the host sends by itself, such as the single 「显示物品」(Show Items) press on entering a run, are not among them
+    CHECK(lx == 0 && ly == 0, "up clears the host left stick");
+    // Cleanup of the mode switch transaction (the "leave" registered in dm_mode_items.h): key presses on the player's behalf queued by touch are voided on a switch; ones the host sends by itself, such as the single "Show Items" press on entering a run, are not among them
     { uint64_t dm_ui_auto_buttons(void); void dm_ui_key_pulse(uint64_t, int), dm_ui_auto_mode_leave(void), dm_ui_cache_mode_leave(void);
-      dm_ui_key_pulse(0x40, 1000); CHECK(dm_ui_auto_buttons() == 0x40, "触摸按钮的键脉冲在途：替按键里有这颗键");
-      dm_ui_auto_mode_leave(); CHECK(dm_ui_auto_buttons() == 0, "切换清理后在途的键脉冲作废");
-      dm_ui_cache_mode_leave(); CHECK(1, "界面缓存清理在没有界面根时不崩"); }
-    printf("== touch host %d 项，失败 %d ==\n", checks, fails);
+      dm_ui_key_pulse(0x40, 1000); CHECK(dm_ui_auto_buttons() == 0x40, "touch button key pulse in flight: the key is among the keys pressed on the player's behalf");
+      dm_ui_auto_mode_leave(); CHECK(dm_ui_auto_buttons() == 0, "key pulses in flight are voided by the switch cleanup");
+      dm_ui_cache_mode_leave(); CHECK(1, "UI cache cleanup does not crash without a UI root"); }
+    printf("== touch host %d checks, %d failed ==\n", checks, fails);
     return fails != 0;
 }
 void dm_shop_get(dm_shop_info *out) { memset(out, 0, sizeof *out); }   // vendor readout (dm_actions.c): all 0

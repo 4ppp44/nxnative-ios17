@@ -38,9 +38,9 @@ CAPTURE = GAME.get('shader_glslc_capture', 'off') == 'on'   # GLSLC outputs the 
 CTL_MAGIC, GFX_MAGIC, CS_MAGIC = bytes.fromhex('34127698'), bytes.fromhex('78563412'), bytes.fromhex('79563412')
 STAGES = ['vs', 'hs', 'ds', 'gs', 'ps', 'cs']
 SPH_STAGE = {1: 'vs', 2: 'hs', 3: 'ds', 4: 'gs', 5: 'ps'}
-ZH = {'vs': '顶点', 'hs': '外壳', 'ds': '域', 'gs': '几何', 'ps': '像素', 'cs': '计算'}
+STAGE_NAME = {'vs': 'vertex', 'hs': 'hull', 'ds': 'domain', 'gs': 'geometry', 'ps': 'pixel', 'cs': 'compute'}   # shader_map.tsv column 3
 
-def red(msg): sys.exit('【红】' + msg)
+def red(msg): sys.exit('[RED] ' + msg)
 
 def ctl_len(ctl):
     """Number of control bytes in the key: control +0x20 holds the section's own length. Every control section of Mario, Fire Emblem Engage, Metroid Dread and 13 Sentinels is at least 0x880 bytes, so the first 0x880 are used;
@@ -53,14 +53,14 @@ def skey(ctl, code):
 
 def check(where, st, ctl, code):
     """control section and code area consistent; returns the reason if not"""
-    if ctl[:4] != CTL_MAGIC or len(ctl) < ctl_len(ctl): return '控制段异常'
+    if ctl[:4] != CTL_MAGIC or len(ctl) < ctl_len(ctl): return 'bad control section'
     # a compute code area may have no header (SDK 10's Super Mario 3D World + Bowser's Fury and D2R: instructions start at +0; dmsh_build strips only a 0x12345679 header)
-    if st == 'cs' and code[:4] in (CS_MAGIC, GFX_MAGIC) and code[:4] != CS_MAGIC or st != 'cs' and code[:4] != GFX_MAGIC: return '代码区头魔数与阶段不符'
-    if struct.unpack_from('<I', ctl, 0x704)[0] != len(code): return '控制段 +0x704 与代码区长不符'
+    if st == 'cs' and code[:4] in (CS_MAGIC, GFX_MAGIC) and code[:4] != CS_MAGIC or st != 'cs' and code[:4] != GFX_MAGIC: return 'code area header magic does not match the stage'
+    if struct.unpack_from('<I', ctl, 0x704)[0] != len(code): return 'control +0x704 does not match the code area length'
     return None
 
 def bnsh_shaders(d, base, label):
-    if d[base + 0x60:base + 0x64] != b'grsc': red(f'{label} BNSH @{base:#x} 没有 grsc 块')
+    if d[base + 0x60:base + 0x64] != b'grsc': red(f'{label} BNSH @{base:#x} has no grsc block')
     nvar, pvar = struct.unpack_from('<IQ', d, base + 0x7c)
     out = []
     for v in range(nvar):
@@ -72,13 +72,13 @@ def bnsh_shaders(d, base, label):
             pctl, pcode, ncode, nctl = struct.unpack_from('<QQII', d, base + sc + 8)
             ctl, code = d[base + pctl:base + pctl + nctl], d[base + pcode:base + pcode + ncode]
             why = check(label, st, ctl, code)
-            if why: red(f'{label} BNSH @{base:#x} 变体 {v} {st}：{why}')
+            if why: red(f'{label} BNSH @{base:#x} variation {v} {st}: {why}')
             out.append((f'{label}#BNSH@{base:#x}#var{v}', st, ctl, code))
     return out
 
 def bahs_shaders(d, label):
     region, rsz = struct.unpack_from('<I', d, 0x1c)[0], struct.unpack_from('<I', d, 0x18)[0]
-    if region + rsz > len(d): red(f'{label} BAHS 代码区越界')
+    if region + rsz > len(d): red(f'{label} BAHS code region out of bounds')
     out = []
     for a in range(0, region - 16, 4):
         off, z, csz, rel = struct.unpack_from('<IIIi', d, a)
@@ -98,16 +98,16 @@ def mshd_shaders(d, label):
     while c >= 0:
         nctl = struct.unpack_from('<I', d, c + 0x20)[0]
         g = d.find(GFX_MAGIC, c + nctl)
-        if nctl < 0x880 or g < 0 or g - c - nctl > 0x400: red(f'{label} MSHD 控制段 @{c:#x}：长 {nctl:#x}，之后找不到代码区头')
+        if nctl < 0x880 or g < 0 or g - c - nctl > 0x400: red(f'{label} MSHD control section @{c:#x}: length {nctl:#x}, no code area header after it')
         ncode = struct.unpack_from('<I', d, c + 0x704)[0]
         ctl, code = d[c:c + nctl], d[g:g + ncode]
         st = SPH_STAGE.get((struct.unpack_from('<I', code, 0x30)[0] >> 10) & 0xf)
-        if st != ('vs', 'ps')[len(out) % 2]: red(f'{label} MSHD @{c:#x}：第 {len(out)} 个阶段是 {st}，不是顶点 / 像素交替')
+        if st != ('vs', 'ps')[len(out) % 2]: red(f'{label} MSHD @{c:#x}: stage {len(out)} is {st}, not alternating vertex / pixel')
         why = check(label, st, ctl, code)
-        if why: red(f'{label} MSHD @{c:#x} {st}：{why}')
+        if why: red(f'{label} MSHD @{c:#x} {st}: {why}')
         out.append((f'{label}#MSHD#var{len(out) // 2}', st, ctl, code))
         c = d.find(CTL_MAGIC, g + ncode)
-    if len(out) % 2: red(f'{label} MSHD：{len(out)} 个阶段，不成对')
+    if len(out) % 2: red(f'{label} MSHD: {len(out)} stages, not in pairs')
     return out
 
 def glslc_shaders(d, label, need=True):
@@ -129,7 +129,7 @@ def glslc_shaders(d, label, need=True):
         st = 'cs' if code[:4] == CS_MAGIC or headerless_cs else SPH_STAGE.get((struct.unpack_from('<I', code, 0x30)[0] >> 10) & 0xf) if code[:4] == GFX_MAGIC else None
         if not st or check(label, st, ctl, code): continue
         out.append((f'{label}#GLSLC@{h:#x}', st, ctl, code))
-    if not out and need: red(f'{label}：档案开了 shader_main_glslc，却没有一份 GLSLC 输出')
+    if not out and need: red(f'{label}: the profile has shader_main_glslc on, but there is no GLSLC output')
     return out
 
 IDRK, ZCHUNKED = b'IDRK0000', 0x100000
@@ -270,29 +270,29 @@ def unzs(path):
     did = int.from_bytes(d[o:o + n], 'little')
     if not did: return subprocess.run(['zstd', '-d', '-c', '-q', path], capture_output=True, check=True).stdout
     from compression import zstd
-    if did not in ZDICTS: red(f'{path}：帧要 zstd 字典 {did}，Pack/ZsDic.pack.zs 里没有')
+    if did not in ZDICTS: red(f'{path}: a frame needs zstd dictionary {did}, which Pack/ZsDic.pack.zs does not have')
     if did not in _ZD: _ZD[did] = zstd.ZstdDict(ZDICTS[did])
     return zstd.decompress(d, zstd_dict=_ZD[did])
 
 def unity_program(code, where, stage=None):
     """Unity's Switch program code → [(stage, control, code)]; stage = the subprogram's stage from m_ParsedForm, which only the pre-2019.3 layout needs"""
     if len(code) >= 0x14 and code[0x10:0x14] == CTL_MAGIC:   # before 2019.3: 0x10 header + control section + code area, one stage
-        if stage is None: red(f'{where}：2019.3 之前的子程序，m_ParsedForm 里查不到它的阶段')
+        if stage is None: red(f'{where}: pre-2019.3 subprogram whose stage is not in m_ParsedForm')
         nctl, ncode = struct.unpack_from('<2i', code, 8); a = 0x10; end = a + nctl + ncode
         ctl, cd = code[a:a + nctl], code[a + nctl:end]
-        why = check(where, stage, ctl, cd) if end <= len(code) else '块越界'
-        if why: red(f'{where} {stage}：{why}')
-        if end != len(code): red(f'{where}：程序代码 {len(code):#x} 字节，控制段 + 代码区只到 {end:#x}')
+        why = check(where, stage, ctl, cd) if end <= len(code) else 'block out of bounds'
+        if why: red(f'{where} {stage}: {why}')
+        if end != len(code): red(f'{where}: program code is {len(code):#x} bytes, but control section + code area end at {end:#x}')
         return [(stage, ctl, cd)]
     h = struct.unpack_from('<24i', code, 0); out = []; end = 0x60
     for i, st in enumerate(NV_STAGES):
         off, nctl, ncode = h[6 + i], h[12 + i], h[18 + i]
         if off == -1: continue
         a = 0x60 + off; ctl, cd = code[a:a + nctl], code[a + nctl:a + nctl + ncode]
-        why = check(where, st, ctl, cd) if a + nctl + ncode <= len(code) else '块越界'
-        if why: red(f'{where} {st}：{why}')
+        why = check(where, st, ctl, cd) if a + nctl + ncode <= len(code) else 'block out of bounds'
+        if why: red(f'{where} {st}: {why}')
         out.append((st, ctl, cd)); end = max(end, a + nctl + ncode)
-    if end != len(code): red(f'{where}：程序代码 {len(code):#x} 字节，各阶段块只到 {end:#x}')
+    if end != len(code): red(f'{where}: program code is {len(code):#x} bytes, but the stage blocks end at {end:#x}')
     return out
 
 def unity_stages(o):
@@ -307,7 +307,7 @@ def unity_stages(o):
 def unity_shaders(d, label, out, trees):
     """Shaders in a UnityFS bundle or serialized file → out; raises NoTree when no type tree is available"""
     import unityfs
-    if COMMON is None: red(f'{label}：是 Unity 资源，但 main 里没有 Unity 公共字符串表')
+    if COMMON is None: red(f'{label}: a Unity asset, but main has no Unity common string table')
     sers = unityfs.bundle_files(d) if d[:8] == b'UnityFS\0' else [('', d)]
     for node, x in sers:
         if not unityfs.is_serialized(x): continue
@@ -386,7 +386,7 @@ def uniq_keys(found):
     uniq = {}
     for where, st, ctl, code in found:
         key = skey(ctl, code)
-        if key in uniq and (uniq[key][2] != ctl or uniq[key][3] != code): red(f'键 {key} 相同而控制段或代码区不同（{where}）')
+        if key in uniq and (uniq[key][2] != ctl or uniq[key][3] != code): red(f'key {key} is the same but the control section or code area differs ({where})')
         uniq.setdefault(key, (where, st, ctl, code))
     return uniq
 
@@ -406,7 +406,7 @@ def main():
     # Several versions (base game + update): the RomFS and main arguments are comma-separated and paired one to one; the output is their union (keys are content hashes, shaders shared by versions appear once).
     # The first version's source column is unchanged; later versions are prefixed with their workspace directory name (e.g. v327680): /v327680/Shader/…, main@v327680. They sort after the first version, so existing rows keep their package indices.
     romfs_v, main_v = romfs_l.split(','), main_l.split(',')
-    if len(romfs_v) != len(main_v): red(f'RomFS {len(romfs_v)} 个、main {len(main_v)} 个，要一一对应')
+    if len(romfs_v) != len(main_v): red(f'{len(romfs_v)} RomFS and {len(main_v)} main: they must pair one to one')
     files, results, common = [], [], None
     for i, (romfs, mainnso) in enumerate(zip(romfs_v, main_v)):
         tag = os.path.basename(os.path.dirname(os.path.abspath(romfs))) if i else ''
@@ -421,7 +421,7 @@ def main():
         if CAPTURE:   # GLSLC outputs the game compiles at run time, captured on the Mac (hle_glslc.c): <version dir>/glslc_capture, or DM_GLSLC_CAPTURE
             cap = os.environ.get('DM_GLSLC_CAPTURE') or os.path.join(os.path.dirname(os.path.abspath(romfs)), 'glslc_capture')
             names = sorted(f for f in os.listdir(cap) if f.endswith('.glslc')) if os.path.isdir(cap) else []
-            if not names: print(f'【红】档案开了 shader_glslc_capture，{cap} 却没有捕获的 GLSLC 输出：游戏运行时编译的着色器不会有翻译 | no captured GLSLC outputs in {cap}: the shaders the game compiles at run time will have no translation', flush=True)
+            if not names: print(f'[RED] the profile has shader_glslc_capture on, but there are no captured GLSLC outputs in {cap}: the shaders the game compiles at run time will have no translation', flush=True)
             for nm in names: found += glslc_shaders(open(os.path.join(cap, nm), 'rb').read(), f'/glslc_capture/{nm}')
         results.append(('main', {skey(c, k): (w, s, c, k) for w, s, c, k in found}, var_pairs(found), {}))
     zdicts = {k: v for r in romfs_v for k, v in zs_dicts(r).items()}   # Tears of the Kingdom's zstd dictionaries (zs_dicts)
@@ -440,19 +440,19 @@ def main():
         byrel = {r: p for p, r in files}
         with cf.ProcessPoolExecutor(J, initializer=_pool_init, initargs=(common, trees, zdicts)) as ex: again = list(ex.map(scan_file, [(byrel[r], r) for r in defer]))
         for rel, uniq, pr, extra in again:
-            if extra == 'defer': red(f'{rel}：Unity 序列化文件没有类型树，资源包里也没有同哈希的 Shader 类型树可借')
+            if extra == 'defer': red(f'{rel}: Unity serialized file without type trees, and no bundle has a Shader type tree of the same hash to borrow')
         results = [r for r in results if r[3] != 'defer'] + again
     per_src = collections.Counter(); pairs = set()
     for rel, uniq, pr, _ in results:
         pairs |= pr
         for key, v in uniq.items():
             if key in keys:
-                if keys[key][2] != v[2] or keys[key][3] != v[3]: red(f'键 {key} 相同而控制段或代码区不同（{v[0]} / {keys[key][0]}）')
+                if keys[key][2] != v[2] or keys[key][3] != v[3]: red(f'key {key} is the same but the control section or code area differs ({v[0]} / {keys[key][0]})')
                 continue
             keys[key] = v; per_src[group(v[0])] += 1
     if SEPARABLE:
         sp, cover = separable_pairs(keys); pairs |= sp
-        print(f'单阶段程序：每个顶点着色器配 {len(cover)} 个像素着色器作覆盖（{" ".join(cover)}） | single-stage programs: every vertex shader is paired with a cover of {len(cover)} pixel shader(s)')
+        print(f'single-stage programs: every vertex shader is paired with a cover of {len(cover)} pixel shader(s) ({" ".join(cover)})')
     os.makedirs(pkg, exist_ok=True)
     for f in os.listdir(pkg):
         if f.endswith('.bin'): os.unlink(os.path.join(pkg, f))
@@ -461,20 +461,20 @@ def main():
         where, st, ctl, code = keys[key]
         name = f'{st}_{group(where)}.bin'
         rec = bytearray(b'BTCDBTCD' + bytes(0x30)); struct.pack_into('<2I', rec, 0x28, len(ctl), len(code)); rec += code + ctl
-        if rec.find(CTL_MAGIC) != 0x38 + len(code): red(f'键 {key}：代码区里出现控制段魔数，dmsh_build 会切错')
-        if rec.count(b'BTCDBTCD') != 1: red(f'键 {key}：记录内出现记录分隔符')
-        rows.append((name, len(recs[name]), ZH[st], key, where)); recs[name].append(bytes(rec)); stat[st] += 1
+        if rec.find(CTL_MAGIC) != 0x38 + len(code): red(f'key {key}: the control magic appears in the code area, dmsh_build would split the record wrongly')
+        if rec.count(b'BTCDBTCD') != 1: red(f'key {key}: the record separator appears inside the record')
+        rows.append((name, len(recs[name]), STAGE_NAME[st], key, where)); recs[name].append(bytes(rec)); stat[st] += 1
         if st == 'cs':
             x, y, z = struct.unpack_from('<3I', ctl, 0x748); sh = struct.unpack_from('<I', ctl, 0x754)[0]
-            if not x * y * z: red(f'计算着色器 {key} 控制段 +0x748 线程组为 0（{where}）')
+            if not x * y * z: red(f'compute shader {key}: control +0x748 thread group is 0 ({where})')
             facts[key] = {'local': [x, y, z], 'shared': (sh + 15) // 16 * 16}
     for name, rr in recs.items():
         with open(os.path.join(pkg, name), 'wb') as f: f.write(b''.join(rr))
     with open(mapout, 'w') as f:
         kinds = ' / '.join(k for k, hit in (('BNSH / BAHS', any('#BNSH@' in r[4] or '#BAHS@' in r[4] for r in rows)), ('Unity Shader', any('#var' in r[4] and '#BNSH@' not in r[4] and '#MSHD#' not in r[4] for r in rows)),
                                             ('MSHD', any('#MSHD#' in r[4] for r in rows)), ('GLSLC', any('#GLSLC@' in r[4] for r in rows))) if hit)
-        f.write(f'# kind: evidence  {NOTE}（RomFS + main 里的 {kinds}）→ 控制段 + 代码区键（dm/gfx/tools/shader_split.py）\n')
-        f.write('# 第 5 列记每个键首次出现的位置；本作没有 PC 版配对\n')
+        f.write(f'# kind: evidence  {NOTE} ({kinds} in RomFS + main) → control section + code area keys (dm/gfx/tools/shader_split.py)\n')
+        f.write('# column 5 records where each key first appears; this game has no PC version to pair with\n')
         f.write('package\tindex\tstage\tdm_ctl_sha16\tsource\n')
         for r in rows: f.write('\t'.join(map(str, r)) + '\n')
     # Hand-written facts the machine code cannot give (the profile's shader_facts_manual.tsv, same row format) are merged over the generated ones, so the table stays reproducible
@@ -483,12 +483,12 @@ def main():
         for ln in open(manual):
             if ln.strip() and not ln.startswith('#'): k, v = ln.rstrip('\n').split('\t', 1); facts[k] = {**facts.get(k, {}), **json.loads(v)}
     with open(factsout, 'w') as f:
-        f.write('# 翻译查询的作答表（dm/gfx/tools/shader_split.py 生成，勿手改）：键 <TAB> 事实 JSON。本作没有 PC 版可配对：只有计算着色器的线程组 / 共享内存（取自控制段），其余查询按翻译器缺省\n')
+        f.write('# Answer table for translation queries (generated by dm/gfx/tools/shader_split.py, do not edit): key <TAB> fact JSON. This game has no PC version to pair with: only the thread group / shared memory of compute shaders (taken from the control section); other queries get the translator defaults\n')
         for k in sorted(facts): f.write(k + '\t' + json.dumps(facts[k], sort_keys=True, separators=(',', ':')) + '\n')
     if pairsout:
         with open(pairsout, 'w') as f:
-            f.write('# kind: evidence  BNSH 变体里的顶点 / 像素着色器配对（dm/gfx/tools/shader_split.py 生成，勿手改）：顶点键 <TAB> 像素键 | vertex / pixel shader pairs within BNSH variations (generated, do not edit): vertex key <TAB> pixel key\n')
+            f.write('# kind: evidence  vertex / pixel shader pairs within BNSH variations (generated by dm/gfx/tools/shader_split.py, do not edit): vertex key <TAB> pixel key\n')
             for a, b in sorted(pairs): f.write(f'{a}\t{b}\n')
-    print(f'着色器 {len(rows)} 个（' + '，'.join(f'{ZH[s]} {n}' for s, n in sorted(stat.items())) + '）；来源 ' + '，'.join(f'{g} {n}' for g, n in per_src.most_common()) + f'；计算着色器作答 {len(facts)} 行' + (f'；变体配对 {len(pairs)} 对' if pairsout else ''))
+    print(f'shaders: {len(rows)} (' + ', '.join(f'{STAGE_NAME[s]} {n}' for s, n in sorted(stat.items())) + '); sources ' + ', '.join(f'{g} {n}' for g, n in per_src.most_common()) + f'; compute shader answers {len(facts)} rows' + (f'; variation pairs {len(pairs)}' if pairsout else ''))
 
 if __name__ == '__main__': main()

@@ -23,7 +23,7 @@ void dm_fs_save_poison(int e);
 static int g_mode, g_calls;                   // 0 write normally; 1 always return 0; 2 write only 3 bytes the first time
 static ssize_t fake_pwrite(int fd, const void *buf, size_t n, off_t off) {
     g_calls++;
-    if (g_mode == 1) { if (g_calls > 1000) { printf("  ✗ pwrite 返回 0 后被重试超过 1000 次（死循环）\n"); exit(1); } return 0; }
+    if (g_mode == 1) { if (g_calls > 1000) { printf("  ✗ pwrite retried over 1000 times after returning 0 (endless loop)\n"); exit(1); } return 0; }
     if (g_mode == 2 && g_calls == 1 && n > 3) n = 3;
     return pwrite(fd, buf, n, off);
 }
@@ -55,11 +55,11 @@ static int test_holes(void) {
     for (size_t k = 0; k < sizeof q / sizeof *q; k++) {
         long off = q[k][0], n = q[k][1], want = off >= N ? 0 : (off + n > N ? N - off : n);
         memset(got, 0xAA, sizeof got); ssize_t r = dm_data_pread(fd, got, (size_t)n, off);
-        if (r != want || (want && memcmp(got, orig + off, (size_t)want))) { fprintf(stderr, "失败：剔零读 off=%ld n=%ld 返回 %zd（期望 %ld）\n", off, n, r, want); bad++; }
+        if (r != want || (want && memcmp(got, orig + off, (size_t)want))) { fprintf(stderr, "FAIL: zero-stripped read off=%ld n=%ld returned %zd (expected %ld)\n", off, n, r, want); bad++; }
     }
-    if (dm_data_logical_size(path, 49000) != N) { fprintf(stderr, "失败：剔零档案的原始大小\n"); bad++; }
+    if (dm_data_logical_size(path, 49000) != N) { fprintf(stderr, "FAIL: original size of the zero-stripped archive\n"); bad++; }
     close(fd); g_hm[fd] = NULL; unlink(path); unlink(hp);
-    printf("%s 剔零档案偏移换算 15 种读法逐字节等于原始内容\n", bad ? "✗" : "✓");
+    printf("%s zero-stripped archive offset translation: 15 kinds of read equal the original content byte for byte\n", bad ? "✗" : "✓");
     return bad;
 }
 int main(void) {
@@ -71,117 +71,117 @@ int main(void) {
     snprintf(rom, sizeof rom, "%s/rom", root); snprintf(overlay, sizeof overlay, "%s/overlay", root); snprintf(rdata, sizeof rdata, "%s/data", rom); snprintf(odata, sizeof odata, "%s/data", overlay);
     mkdir(rom, 0755); mkdir(overlay, 0755); mkdir(rdata, 0755); mkdir(odata, 0755);
     snprintf(fn, sizeof fn, "%s/same", rdata); put(fn, "base"); snprintf(fn, sizeof fn, "%s/same", odata); put(fn, "overlay"); snprintf(fn, sizeof fn, "%s/base", rdata); put(fn, "only-base"); snprintf(fn, sizeof fn, "%s/over", odata); put(fn, "only-overlay");
-    setenv("DM_ROMFS", rom, 1); setenv("DM_ROMFS_OVERLAY", overlay, 1); CHECK(h_fs_MountRom("rom", NULL, 0) == RES_OK, "挂载 RomFS 两层 overlay");
-    CHECK(read_fs("rom:/data/same", got, sizeof got) && !strcmp(got, "overlay"), "overlay 文件优先"); CHECK(read_fs("rom:/data/base", got, sizeof got) && !strcmp(got, "only-base"), "overlay 缺失时回退基底");
-    uint64_t rh; CHECK(h_fs_OpenFile(&rh, "rom:/data/same", MODE_WRITE) == RES_FAIL, "两层挂载均拒绝写入");
+    setenv("DM_ROMFS", rom, 1); setenv("DM_ROMFS_OVERLAY", overlay, 1); CHECK(h_fs_MountRom("rom", NULL, 0) == RES_OK, "mount RomFS with two layers (base + overlay)");
+    CHECK(read_fs("rom:/data/same", got, sizeof got) && !strcmp(got, "overlay"), "the overlay file wins"); CHECK(read_fs("rom:/data/base", got, sizeof got) && !strcmp(got, "only-base"), "falls back to the base when the overlay lacks the file");
+    uint64_t rh; CHECK(h_fs_OpenFile(&rh, "rom:/data/same", MODE_WRITE) == RES_FAIL, "the two-layer mount refuses writes");
     {   // Find a file in the overlay (dm_overlay_file): two layers joined by a colon (old devices = in-bundle overlay + Legacy Device Pack), searched layer by layer with earlier ones taking priority; treating the whole string as one directory finds nothing
         char l2[1100], two[2300], want[1300]; snprintf(l2, sizeof l2, "%s/pack", root); mkdir(l2, 0755); snprintf(two, sizeof two, "%s:%s", overlay, l2); setenv("DM_ROMFS_OVERLAY", two, 1);
         snprintf(fn, sizeof fn, "%s/mark", overlay); put(fn, "1"); snprintf(fn, sizeof fn, "%s/only2", l2); put(fn, "2"); snprintf(fn, sizeof fn, "%s/mark", l2); put(fn, "2");
-        snprintf(want, sizeof want, "%s/mark", overlay); CHECK(dm_overlay_file("mark", p, sizeof p) == 1 && !strcmp(p, want), "两层都有：取第一层的");
-        snprintf(want, sizeof want, "%s/only2", l2); CHECK(dm_overlay_file("only2", p, sizeof p) == 1 && !strcmp(p, want), "只有第二层有：取第二层的");
-        snprintf(want, sizeof want, "%s/data/over", overlay); CHECK(dm_overlay_file("data/over", p, sizeof p) == 1 && !strcmp(p, want), "带子目录的相对路径");
-        CHECK(dm_overlay_file("none", p, sizeof p) == 0 && !p[0], "哪层都没有：返回 0、输出清空");
-        setenv("DM_ROMFS_OVERLAY", overlay, 1); snprintf(want, sizeof want, "%s/mark", overlay); CHECK(dm_overlay_file("mark", p, sizeof p) == 1 && !strcmp(p, want), "单层（新机型）照旧");
-        unsetenv("DM_ROMFS_OVERLAY"); CHECK(dm_overlay_file("mark", p, sizeof p) == 0, "没设覆盖层：返回 0"); setenv("DM_ROMFS_OVERLAY", overlay, 1); }
+        snprintf(want, sizeof want, "%s/mark", overlay); CHECK(dm_overlay_file("mark", p, sizeof p) == 1 && !strcmp(p, want), "in both layers: the first layer's is taken");
+        snprintf(want, sizeof want, "%s/only2", l2); CHECK(dm_overlay_file("only2", p, sizeof p) == 1 && !strcmp(p, want), "only in the second layer: the second layer's is taken");
+        snprintf(want, sizeof want, "%s/data/over", overlay); CHECK(dm_overlay_file("data/over", p, sizeof p) == 1 && !strcmp(p, want), "relative path with a subdirectory");
+        CHECK(dm_overlay_file("none", p, sizeof p) == 0 && !p[0], "in no layer: returns 0, output cleared");
+        setenv("DM_ROMFS_OVERLAY", overlay, 1); snprintf(want, sizeof want, "%s/mark", overlay); CHECK(dm_overlay_file("mark", p, sizeof p) == 1 && !strcmp(p, want), "a single layer (newer devices) works as before");
+        unsetenv("DM_ROMFS_OVERLAY"); CHECK(dm_overlay_file("mark", p, sizeof p) == 0, "no overlay set: returns 0"); setenv("DM_ROMFS_OVERLAY", overlay, 1); }
     g_nmnt = 0;
     snprintf(save, sizeof save, "%s/save", root); snprintf(work, sizeof work, "%s.work", save);
     mkdir(save, 0755); snprintf(p, sizeof p, "%s/a", save); put(p, "old");
     setenv("DM_SAVE", save, 1); setenv("DM_TEST_FS_FAIL", "write:5:28", 1);   // the 5th save write fails, errno 28 = ENOSPC
-    CHECK(h_fs_MountSave("save", NULL) == RES_OK, "挂载存档");
+    CHECK(h_fs_MountSave("save", NULL) == RES_OK, "mount the save");
 
     // Save write count: (1)=1st (2)=2nd (3)=3rd (4)=4th/5th/6th/7th (5)=8th
-    printf("① pwrite 返回 0\n");
+    printf("① pwrite returns 0\n");
     g_mode = 1; g_calls = 0;
-    CHECK(write_save("save:/a", "xyz") == RES_FAIL, "WriteFile 返回失败 0x2A2");
-    CHECK(g_calls == 1, "只调了 1 次 pwrite（实际 %d 次；原先无限重试）", g_calls);
+    CHECK(write_save("save:/a", "xyz") == RES_FAIL, "WriteFile returns failure 0x2A2");
+    CHECK(g_calls == 1, "pwrite called only once (actually %d times; it used to retry forever)", g_calls);
 
-    printf("② pwrite 分段写\n");
+    printf("② pwrite writes in pieces\n");
     g_mode = 2; g_calls = 0;
-    CHECK(write_save("save:/a", "abcdefg") == RES_OK, "WriteFile 成功");
-    CHECK(g_calls == 2, "pwrite 调 2 次（3 字节 + 4 字节；实际 %d）", g_calls);
-    snprintf(p, sizeof p, "%s/a", work); CHECK(same(p, "abcdefg"), "工作目录里是完整的 abcdefg");
+    CHECK(write_save("save:/a", "abcdefg") == RES_OK, "WriteFile succeeds");
+    CHECK(g_calls == 2, "pwrite called twice (3 bytes + 4 bytes; actually %d)", g_calls);
+    snprintf(p, sizeof p, "%s/a", work); CHECK(same(p, "abcdefg"), "the work directory holds the complete abcdefg");
     g_mode = 0;
 
-    printf("③ 事务\n");
-    CHECK(h_fs_Commit("save") == RES_FAIL && g_nfail == 1 && g_lasterr == ENOSPC, "①②所在事务 Commit 被拒，前端通知 1 次 errno=ENOSPC（实际 %d 次 errno=%d）", g_nfail, g_lasterr);
-    snprintf(p, sizeof p, "%s/a", work); CHECK(same(p, "old"), "工作目录丢弃、回到已提交版 old");
-    CHECK(write_save("save:/a", "new") == RES_OK, "下一个事务：写 new");
-    snprintf(p, sizeof p, "%s/a", save); CHECK(same(p, "old"), "Commit 前已提交目录仍是 old");
+    printf("③ transaction\n");
+    CHECK(h_fs_Commit("save") == RES_FAIL && g_nfail == 1 && g_lasterr == ENOSPC, "the Commit of the transaction holding ①② is refused, front end notified once errno=ENOSPC (actually %d times errno=%d)", g_nfail, g_lasterr);
+    snprintf(p, sizeof p, "%s/a", work); CHECK(same(p, "old"), "work directory discarded, back to the committed version old");
+    CHECK(write_save("save:/a", "new") == RES_OK, "next transaction: write new");
+    snprintf(p, sizeof p, "%s/a", save); CHECK(same(p, "old"), "before Commit the committed directory is still old");
     CHECK(h_fs_Commit("save") == RES_OK, "Commit");
-    CHECK(same(p, "new"), "Commit 后已提交目录是 new");
-    snprintf(p, sizeof p, "%s.new", save); CHECK(access(p, F_OK) != 0, "换下来的旧版已删（无 .new 残留）");
+    CHECK(same(p, "new"), "after Commit the committed directory is new");
+    snprintf(p, sizeof p, "%s.new", save); CHECK(access(p, F_OK) != 0, "the swapped-out old version is deleted (no .new left)");
 
     printf("④ DM_TEST_FS_FAIL=write:5:28\n");
-    CHECK(write_save("save:/b", "4") == RES_PATH_NOT_FOUND, "（b 不存在，打开即失败，不计写）");
+    CHECK(write_save("save:/b", "4") == RES_PATH_NOT_FOUND, "(b does not exist: open fails, not counted as a write)");
     h_fs_CreateFile("save:/b", 0);
-    CHECK(write_save("save:/b", "4") == RES_OK, "第 4 次写成功");
-    errno = 0; CHECK(write_save("save:/b", "5") == RES_FAIL && errno == 28, "第 5 次写失败 errno=28（实际 errno=%d）", errno);
-    CHECK(write_save("save:/b", "6") == RES_OK, "第 6 次写成功");
-    CHECK(h_fs_Commit("save") == RES_FAIL && g_nfail == 2 && g_lasterr == 28, "该事务 Commit 被拒，前端通知 errno=28（累计 %d 次）", g_nfail);
-    snprintf(p, sizeof p, "%s/b", save); CHECK(access(p, F_OK) != 0, "已提交目录不变（没有 b）");
-    snprintf(p, sizeof p, "%s/b", work); CHECK(access(p, F_OK) != 0, "工作目录丢弃（没有 b）");
-    snprintf(p, sizeof p, "%s/a", save); CHECK(same(p, "new"), "已提交目录 a 仍是 new");
+    CHECK(write_save("save:/b", "4") == RES_OK, "4th write succeeds");
+    errno = 0; CHECK(write_save("save:/b", "5") == RES_FAIL && errno == 28, "5th write fails errno=28 (actually errno=%d)", errno);
+    CHECK(write_save("save:/b", "6") == RES_OK, "6th write succeeds");
+    CHECK(h_fs_Commit("save") == RES_FAIL && g_nfail == 2 && g_lasterr == 28, "that transaction's Commit is refused, front end notified errno=28 (%d times in total)", g_nfail);
+    snprintf(p, sizeof p, "%s/b", save); CHECK(access(p, F_OK) != 0, "committed directory unchanged (no b)");
+    snprintf(p, sizeof p, "%s/b", work); CHECK(access(p, F_OK) != 0, "work directory discarded (no b)");
+    snprintf(p, sizeof p, "%s/a", save); CHECK(same(p, "new"), "committed directory a is still new");
     h_fs_CreateFile("save:/b", 0);
-    CHECK(write_save("save:/b", "7") == RES_OK && h_fs_Commit("save") == RES_OK, "下一个事务：写 b=7，Commit 成功");
-    snprintf(p, sizeof p, "%s/b", save); CHECK(same(p, "7"), "最终已提交 b = 7（下一个事务的内容）");
-    CHECK(g_nfail == 2, "成功的事务不发通知（累计仍 %d 次）", g_nfail);
+    CHECK(write_save("save:/b", "7") == RES_OK && h_fs_Commit("save") == RES_OK, "next transaction: write b=7, Commit succeeds");
+    snprintf(p, sizeof p, "%s/b", save); CHECK(same(p, "7"), "final committed b = 7 (the next transaction's content)");
+    CHECK(g_nfail == 2, "a successful transaction sends no notification (still %d times in total)", g_nfail);
 
-    printf("⑤ 重新挂载丢弃未提交内容\n");
-    CHECK(write_save("save:/a", "v9") == RES_OK, "写 a=v9 不提交");
+    printf("⑤ remounting discards uncommitted content\n");
+    CHECK(write_save("save:/a", "v9") == RES_OK, "write a=v9 without committing");
     g_nmnt = 0;                                                        // simulate a process restart: clear the mount table
-    CHECK(h_fs_MountSave("save", NULL) == RES_OK, "重新挂载");
-    snprintf(p, sizeof p, "%s/a", work); CHECK(same(p, "new"), "工作目录 a 回到已提交版 new");
-    snprintf(p, sizeof p, "%s/b", work); CHECK(same(p, "7"), "工作目录 b = 已提交的 7");
+    CHECK(h_fs_MountSave("save", NULL) == RES_OK, "remount");
+    snprintf(p, sizeof p, "%s/a", work); CHECK(same(p, "new"), "work directory a is back to the committed version new");
+    snprintf(p, sizeof p, "%s/b", work); CHECK(same(p, "7"), "work directory b = the committed 7");
 
-    printf("⑥ 写失败收场不退出（DM_TEST_FS_FAILAT）\n");
+    printf("⑥ failed writes are handled without exiting (DM_TEST_FS_FAILAT)\n");
     unsetenv("DM_TEST_FS_FAIL");
     // 6a Recloning after a refused commit fails: do not exit, the work directory is untouched and the committed version unchanged; the next commit is refused again and the reclone succeeds; the transaction after that commits normally
     setenv("DM_TEST_FS_FAILAT", "reclone:1", 1);
-    CHECK(write_save("save:/a", "bad") == RES_OK, "写 a=bad");
+    CHECK(write_save("save:/a", "bad") == RES_OK, "write a=bad");
     dm_fs_save_poison(ENOSPC); int nf0 = g_nfail;
-    CHECK(h_fs_Commit("save") == RES_FAIL && g_nfail == nf0 + 1, "本事务被拒（重新克隆注入失败），进程还在，前端通知 1 次");
-    snprintf(p, sizeof p, "%s/a", save); CHECK(same(p, "new"), "已提交目录 a 仍是 new");
-    snprintf(p, sizeof p, "%s/a", work); CHECK(same(p, "bad"), "工作目录没删（a 还是 bad）");
-    CHECK(h_fs_Commit("save") == RES_FAIL && g_nfail == nf0 + 2, "仍是已污染：下一次提交照样拒绝");
-    snprintf(p, sizeof p, "%s/a", work); CHECK(same(p, "new"), "这次重新克隆成了：工作目录 a 回到 new");
-    snprintf(p, sizeof p, "%s.re", work); CHECK(access(p, F_OK) != 0, "没有 .re 残留");
-    CHECK(write_save("save:/a", "good") == RES_OK && h_fs_Commit("save") == RES_OK, "下一个事务写 a=good，提交成功");
-    snprintf(p, sizeof p, "%s/a", save); CHECK(same(p, "good"), "已提交 a = good");
+    CHECK(h_fs_Commit("save") == RES_FAIL && g_nfail == nf0 + 1, "this transaction is refused (injected reclone failure), the process is still alive, front end notified once");
+    snprintf(p, sizeof p, "%s/a", save); CHECK(same(p, "new"), "committed directory a is still new");
+    snprintf(p, sizeof p, "%s/a", work); CHECK(same(p, "bad"), "work directory not deleted (a is still bad)");
+    CHECK(h_fs_Commit("save") == RES_FAIL && g_nfail == nf0 + 2, "still tainted: the next commit is refused too");
+    snprintf(p, sizeof p, "%s/a", work); CHECK(same(p, "new"), "this time the reclone works: work directory a is back to new");
+    snprintf(p, sizeof p, "%s.re", work); CHECK(access(p, F_OK) != 0, "no .re left");
+    CHECK(write_save("save:/a", "good") == RES_OK && h_fs_Commit("save") == RES_OK, "next transaction writes a=good, commit succeeds");
+    snprintf(p, sizeof p, "%s/a", save); CHECK(same(p, "good"), "committed a = good");
     // 6b Writing the guest name after a rename fails and the rollback fails too: do not exit; the file is in a transactional save, so this transaction's commit is refused and the committed version is unchanged; after recloning everything works
     setenv("DM_TEST_FS_FAILAT", "guestname:1,renameback:1", 1);
-    h_fs_CreateFile("save:/c", 0); CHECK(write_save("save:/c", "c") == RES_OK, "写 c");
-    CHECK(h_fs_RenameFile("save:/c", "save:/d") != RES_OK, "改名 c → d 返回失败（两步都注入失败），进程还在");
-    nf0 = g_nfail; CHECK(h_fs_Commit("save") == RES_FAIL && g_nfail == nf0 + 1, "本事务提交被拒");
-    snprintf(p, sizeof p, "%s/c", save); CHECK(access(p, F_OK) != 0, "已提交目录没有 c");
-    snprintf(p, sizeof p, "%s/d", save); CHECK(access(p, F_OK) != 0, "已提交目录没有 d");
-    snprintf(p, sizeof p, "%s/a", save); CHECK(same(p, "good"), "已提交 a 仍是 good");
-    CHECK(write_save("save:/a", "ok2") == RES_OK && h_fs_Commit("save") == RES_OK, "下一个事务照常提交");
+    h_fs_CreateFile("save:/c", 0); CHECK(write_save("save:/c", "c") == RES_OK, "write c");
+    CHECK(h_fs_RenameFile("save:/c", "save:/d") != RES_OK, "rename c → d returns failure (both steps injected to fail), the process is still alive");
+    nf0 = g_nfail; CHECK(h_fs_Commit("save") == RES_FAIL && g_nfail == nf0 + 1, "this transaction's commit is refused");
+    snprintf(p, sizeof p, "%s/c", save); CHECK(access(p, F_OK) != 0, "committed directory has no c");
+    snprintf(p, sizeof p, "%s/d", save); CHECK(access(p, F_OK) != 0, "committed directory has no d");
+    snprintf(p, sizeof p, "%s/a", save); CHECK(same(p, "good"), "committed a is still good");
+    CHECK(write_save("save:/a", "ok2") == RES_OK && h_fs_Commit("save") == RES_OK, "the next transaction commits as usual");
     // 6c Cloning the work directory at mount fails: do not exit; mount the committed directory read-only instead. Reads work, writes fail, commits are no-ops, the committed version is unchanged, and the front end is notified once; the next normal mount works as before
     setenv("DM_TEST_FS_FAILAT", "mountclone:1", 1); g_nmnt = 0; nf0 = g_nfail;
     snprintf(p, sizeof p, "rm -rf '%s'", work); system(p);
-    CHECK(h_fs_MountSave("save", NULL) == RES_OK && g_nfail == nf0 + 1, "挂载返回成功、前端通知 1 次（实际 %d 次）", g_nfail - nf0);
-    CHECK(read_fs("save:/a", got, sizeof got) && !strcmp(got, "ok2"), "只读挂载下读得到已提交的 a=ok2（读到 %s）", got);
-    CHECK(write_save("save:/a", "zzz") != RES_OK, "写不进去");
-    CHECK(h_fs_Commit("save") == RES_OK, "提交是空操作");
-    snprintf(p, sizeof p, "%s/a", save); CHECK(same(p, "ok2"), "已提交 a 仍是 ok2");
+    CHECK(h_fs_MountSave("save", NULL) == RES_OK && g_nfail == nf0 + 1, "mount returns success, front end notified once (actually %d times)", g_nfail - nf0);
+    CHECK(read_fs("save:/a", got, sizeof got) && !strcmp(got, "ok2"), "the read-only mount reads the committed a=ok2 (read %s)", got);
+    CHECK(write_save("save:/a", "zzz") != RES_OK, "writes fail");
+    CHECK(h_fs_Commit("save") == RES_OK, "commit is a no-op");
+    snprintf(p, sizeof p, "%s/a", save); CHECK(same(p, "ok2"), "committed a is still ok2");
     unsetenv("DM_TEST_FS_FAILAT"); g_nmnt = 0;
-    CHECK(h_fs_MountSave("save", NULL) == RES_OK && write_save("save:/a", "ok3") == RES_OK && h_fs_Commit("save") == RES_OK, "去掉注入重新挂载：事务式照常，写 a=ok3 提交成功");
-    snprintf(p, sizeof p, "%s/a", save); CHECK(same(p, "ok3"), "已提交 a = ok3");
+    CHECK(h_fs_MountSave("save", NULL) == RES_OK && write_save("save:/a", "ok3") == RES_OK && h_fs_Commit("save") == RES_OK, "remount without injection: transactional as usual, writing a=ok3 and committing succeed");
+    snprintf(p, sizeof p, "%s/a", save); CHECK(same(p, "ok3"), "committed a = ok3");
 
 
     // Language switch rewriting the settings file (settings_lang_apply): expected values computed by hand from the rule -- only when it "does not match the switch" are Language / VoiceLanguage changed to 0 (English) or 8 (Simplified Chinese); other keys and other languages are untouched
     { extern int g_t_lang; char sd[1200], sf[1300], gotj[512]; snprintf(sd, sizeof sd, "%s/langt", root); mkdir(sd, 0755); snprintf(sf, sizeof sf, "%s/Settings", sd); mkdir(sf, 0755); snprintf(sf, sizeof sf, "%s/Settings/Settings.json", sd);
-      #define LANGCASE(dm, in, want, what) do { g_t_lang = (dm); put(sf, (in)); settings_lang_apply(sd); FILE *lf = fopen(sf, "rb"); size_t ln_ = lf ? fread(gotj, 1, sizeof gotj - 1, lf) : 0; if (lf) fclose(lf); gotj[ln_] = 0; CHECK(!strcmp(gotj, (want)), "语言开关：%s", (what)); } while (0)
-      LANGCASE(-1, "{ \"Language\": 8, \"VoiceLanguage\": 8 }", "{ \"Language\": 8, \"VoiceLanguage\": 8 }", "没点过应用：一个字不动");
-      LANGCASE(1, "{ \"A\": 1, \"Language\": 8, \"VoiceLanguage\": 8, \"B\": 2 }", "{ \"A\": 1, \"Language\": 0, \"VoiceLanguage\": 0, \"B\": 2 }", "开关 = 英文、文件是简中：文字和语音都改成 0，别的键不动");
-      LANGCASE(0, "{ \"Language\": 0, \"VoiceLanguage\": 0 }", "{ \"Language\": 8, \"VoiceLanguage\": 8 }", "开关 = 中文、文件是英文：都改成 8");
-      LANGCASE(0, "{ \"Language\": 9, \"VoiceLanguage\": 9 }", "{ \"Language\": 9, \"VoiceLanguage\": 9 }", "开关 = 中文、玩家在原版里选了繁中：不改回简中");
-      LANGCASE(1, "{ \"Language\": 0, \"VoiceLanguage\": 0 }", "{ \"Language\": 0, \"VoiceLanguage\": 0 }", "开关 = 英文、文件已是英文：不动");
-      LANGCASE(1, "{ \"Language\": 0, \"VoiceLanguage\": 8 }", "{ \"Language\": 0, \"VoiceLanguage\": 0 }", "开关 = 英文、文字已英文但语音还是中文：语音跟上");
-      LANGCASE(1, "{ \"Language\": 12 }", "{\n    \"VoiceLanguage\": 0, \"Language\": 0 }", "开关 = 英文、两位数的语言号且没有语音键：改写并补上语音键");
+      #define LANGCASE(dm, in, want, what) do { g_t_lang = (dm); put(sf, (in)); settings_lang_apply(sd); FILE *lf = fopen(sf, "rb"); size_t ln_ = lf ? fread(gotj, 1, sizeof gotj - 1, lf) : 0; if (lf) fclose(lf); gotj[ln_] = 0; CHECK(!strcmp(gotj, (want)), "language switch: %s", (what)); } while (0)
+      LANGCASE(-1, "{ \"Language\": 8, \"VoiceLanguage\": 8 }", "{ \"Language\": 8, \"VoiceLanguage\": 8 }", "Apply never tapped: not a byte changes");
+      LANGCASE(1, "{ \"A\": 1, \"Language\": 8, \"VoiceLanguage\": 8, \"B\": 2 }", "{ \"A\": 1, \"Language\": 0, \"VoiceLanguage\": 0, \"B\": 2 }", "switch = English, file is Simplified Chinese: text and voice both become 0, other keys untouched");
+      LANGCASE(0, "{ \"Language\": 0, \"VoiceLanguage\": 0 }", "{ \"Language\": 8, \"VoiceLanguage\": 8 }", "switch = Chinese, file is English: both become 8");
+      LANGCASE(0, "{ \"Language\": 9, \"VoiceLanguage\": 9 }", "{ \"Language\": 9, \"VoiceLanguage\": 9 }", "switch = Chinese, the player chose Traditional Chinese in the original game: not changed back to Simplified Chinese");
+      LANGCASE(1, "{ \"Language\": 0, \"VoiceLanguage\": 0 }", "{ \"Language\": 0, \"VoiceLanguage\": 0 }", "switch = English, file already English: untouched");
+      LANGCASE(1, "{ \"Language\": 0, \"VoiceLanguage\": 8 }", "{ \"Language\": 0, \"VoiceLanguage\": 0 }", "switch = English, text already English but voice still Chinese: the voice follows");
+      LANGCASE(1, "{ \"Language\": 12 }", "{\n    \"VoiceLanguage\": 0, \"Language\": 0 }", "switch = English, two-digit language number and no voice key: rewritten and the voice key added");
       g_t_lang = -1; }
 
     char cmd[1200]; snprintf(cmd, sizeof cmd, "rm -rf '%s'", root); system(cmd);
-    printf("== %d 项，失败 %d ==\n", checks, fails);
+    printf("== %d checks, %d failed ==\n", checks, fails);
     return fails != 0;
 }

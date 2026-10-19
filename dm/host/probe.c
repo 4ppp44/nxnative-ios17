@@ -22,8 +22,8 @@ static struct { uint64_t at; uint32_t *slot; unsigned hits; char name[40]; long 
 static int rd64(uint64_t a, uint64_t *v) { vm_size_t g = 0; return !vm_read_overwrite(mach_task_self(), a, 8, (vm_address_t)v, &g) && g == 8; }
 static void probe_heapwalk(uint64_t h) {
     uint64_t start = 0, size = 0; rd64(h + 0x28, &start); rd64(h + 0x30, &size);
-    fprintf(stderr, "[dm]   ExpHeap %#llx 起 %#llx 大小 %#llx\n", (unsigned long long)h, (unsigned long long)start, (unsigned long long)size);
-    static const struct { int list, off; const char *nm; } L[2] = { { 0xb0, 0xc4, "空闲/free" }, { 0xc8, 0xdc, "已用/used" } };
+    fprintf(stderr, "[dm]   ExpHeap %#llx start %#llx size %#llx\n", (unsigned long long)h, (unsigned long long)start, (unsigned long long)size);
+    static const struct { int list, off; const char *nm; } L[2] = { { 0xb0, 0xc4, "free" }, { 0xc8, 0xdc, "used" } };
     for (int k = 0; k < 2; k++) {
         uint64_t offw = 0, node = 0, sum = 0; int n = 0; rd64(h + L[k].off, &offw); int32_t off = (int32_t)offw;
         rd64(h + L[k].list + 8, &node);
@@ -34,7 +34,7 @@ static void probe_heapwalk(uint64_t h) {
             sum += bsz; n++;
             if (!rd64(node + 8, &node)) break;
         }
-        fprintf(stderr, "\n[dm]   %s 共 %d 块 %#llx 字节\n", L[k].nm, n, (unsigned long long)sum);
+        fprintf(stderr, "\n[dm]   %s %d blocks %#llx bytes\n", L[k].nm, n, (unsigned long long)sum);
     }
 }   // dump: on hit print 16 bytes at [x0+dump] (-1 = do not print); fn: dedicated handler (replaces the default print)
 static int g_nprobe;
@@ -59,11 +59,11 @@ static void probe_dump_once(void) {
     char spec[512]; strlcpy(spec, e, sizeof spec);
     char *mod = strtok(spec, ":"), *o = strtok(NULL, ":"), *n = strtok(NULL, ":"), *f = strtok(NULL, ":");
     module_t *m = NULL; for (int i = 0; i < g_nmod; i++) if (mod && !strcmp(g_mod[i].name, mod)) m = &g_mod[i];
-    if (!m || !o || !n) { LOG("DM_PROBE_DUMP 格式：模块:偏移:长度[:文件]"); return; }
+    if (!m || !o || !n) { LOG("DM_PROBE_DUMP format: module:offset:length[:file]"); return; }
     char def[512]; snprintf(def, sizeof def, "%s%s/run/platform/probe_dump.bin", getenv("DM_ROOT") ?: getenv("HOME"), getenv("DM_ROOT") ? "" : "/dm-work");
     FILE *fp = fopen(f ? f : def, "wb"); if (!fp) return;
     fwrite(m->base + strtoull(o, 0, 16), 1, strtoull(n, 0, 16), fp); fclose(fp);
-    LOG("探针转储 %s+%s 长 %s → %s", mod, o, n, f ? f : def);
+    LOG("probe dump %s+%s length %s → %s", mod, o, n, f ? f : def);
 }
 static int probe_hit(ucontext_t *uc) {   // Registered by probe_install with the SIGTRAP branch of crash.c
     uint64_t pc = uc->uc_mcontext->__ss.__pc;
@@ -81,7 +81,7 @@ static int probe_hit(ucontext_t *uc) {   // Registered by probe_install with the
         if (getenv("DM_PROBE_ALL")) for (int r = 9; r < 19; r++) fprintf(stderr, " x%d=%#llx", r, uc->uc_mcontext->__ss.__x[r]);   // also print x9–x18
         fprintf(stderr, " lr=%#llx", uc->uc_mcontext->__ss.__lr);
         { uint64_t x8 = uc->uc_mcontext->__ss.__x[8]; Dl_info di; fprintf(stderr, " x8=%#llx", x8);   // x8: indirect call targets are often here (probe placed before blr x8)
-          if (dladdr((void *)x8, &di) && di.dli_sname) fprintf(stderr, "（%s+%#lx）", di.dli_sname, (unsigned long)(x8 - (uint64_t)di.dli_saddr)); }
+          if (dladdr((void *)x8, &di) && di.dli_sname) fprintf(stderr, " (%s+%#lx)", di.dli_sname, (unsigned long)(x8 - (uint64_t)di.dli_saddr)); }
         if (g_probe[i].dump >= 0) {
             uint8_t b[16]; vm_size_t got = 0;
             int dr = (g_probe[i].dump >> 25) & 31;                                    // @xN+offset: based on xN
@@ -103,7 +103,7 @@ static int probe_hit(ucontext_t *uc) {   // Registered by probe_install with the
 }
 static uint32_t *g_slots; static int g_slots_sealed;
 static void probe_add(module_t *m, uint64_t off, long dump, probe_fn fn) {
-    if (g_nprobe >= MAX_PROBE) die("探针过多");
+    if (g_nprobe >= MAX_PROBE) die("too many probes");
     if (!g_slots) g_slots = mmap(NULL, 0x4000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
     uint64_t at = (uint64_t)m->base + off;
     uint32_t *w = (uint32_t *)at, *sl = g_slots + g_nprobe * 8;
@@ -118,7 +118,7 @@ static void probe_add(module_t *m, uint64_t off, long dump, probe_fn fn) {
     sys_icache_invalidate(w, 4);
     g_probe[g_nprobe].at = at; g_probe[g_nprobe].slot = sl; g_probe[g_nprobe].dump = dump; g_probe[g_nprobe].fn = fn; g_probe[g_nprobe].freg = -1; g_probe[g_nprobe].hreg = -1;
     snprintf(g_probe[g_nprobe].name, sizeof g_probe[0].name, "%s+%#llx", m->name, off);
-    LOG("探针 %s（原指令 %08x）", g_probe[g_nprobe].name, sl[0]);
+    LOG("probe %s (original instruction %08x)", g_probe[g_nprobe].name, sl[0]);
     g_nprobe++;
 }
 
@@ -131,10 +131,10 @@ void probe_install(void) {
     if (e) {
         char spec[512]; strlcpy(spec, e, sizeof spec);
         for (char *t = strtok(spec, ","); t; t = strtok(NULL, ",")) {
-            char *c = strchr(t, ':'); if (!c) die("DM_PROBE 格式：模块:偏移");
+            char *c = strchr(t, ':'); if (!c) die("DM_PROBE format: module:offset");
             *c = 0; module_t *m = NULL;
             for (int i = 0; i < g_nmod; i++) if (!strcmp(g_mod[i].name, t)) m = &g_mod[i];
-            if (!m) die("DM_PROBE 无此模块 %s", t);
+            if (!m) die("DM_PROBE: no such module %s", t);
             char *at_ = strchr(c + 1, '@');
             long dump = -1;
             if (at_) {   // @offset / @*offset / @xN+offset / @*xN+offset
@@ -149,10 +149,10 @@ void probe_install(void) {
             if (qm) {   // Filter: ?x0=706c400000 or ?[x0+38]=781548 (hex)
                 const char *q = qm + 1; int br = *q == '[';
                 if (br) q++;
-                if (*q != 'x') die("DM_PROBE 过滤格式：?xN=值 或 ?[xN+偏移]=值");
+                if (*q != 'x') die("DM_PROBE filter format: ?xN=value or ?[xN+offset]=value");
                 char *e2; g_probe[g_nprobe - 1].freg = (int)strtol(q + 1, &e2, 10) & 31; g_probe[g_nprobe - 1].foff = -1;
                 if (br) { g_probe[g_nprobe - 1].foff = *e2 == '+' ? strtol(e2 + 1, &e2, 16) : 0; if (*e2 == ']') e2++; }
-                if (*e2 != '=') die("DM_PROBE 过滤缺 =");
+                if (*e2 != '=') die("DM_PROBE filter missing =");
                 g_probe[g_nprobe - 1].fval = strtoull(e2 + 1, 0, 16);
             }
         }

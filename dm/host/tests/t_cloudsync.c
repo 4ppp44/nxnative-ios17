@@ -48,71 +48,71 @@ int main(void) {
     put("A", "save/Alice/Alice.d2s", "a1", 1000); put("A", "save/Alice/Alice.key", "k", 900);
     put("A", "save/SharedStashSoftCoreV2.d2i", "s1", 1100); put("A", "save/ModernSharedStashSoftCoreV2/ModernSharedStashSoftCoreV2.d2i", "m1", 1100); put("A", "save/Settings/Settings.json", "{}", 1100);
     put("B", "save/Settings/Settings.json", "{b}", 1200);
-    CHECK(dsync("A", 0, 0) == 2, "① A 上传应为 2 个单位（Alice、_stash）");
-    CHECK(dsync("B", 1, 0) == 2, "① B 下载应为 2 个单位");
-    CHECK(get("B", "save/Alice/Alice.d2s") && !strcmp(get("B", "save/Alice/Alice.d2s"), "a1"), "① B 的 Alice 应是 a1");
-    CHECK(mtime("B", "save/Alice/Alice.d2s") == 1000, "① 修改时间应还原成 1000，实为 %ld", mtime("B", "save/Alice/Alice.d2s"));
-    CHECK(get("B", "save/ModernSharedStashSoftCoreV2/ModernSharedStashSoftCoreV2.d2i") && !strcmp(get("B", "save/ModernSharedStashSoftCoreV2/ModernSharedStashSoftCoreV2.d2i"), "m1"), "① B 的共享仓库应是 m1");
-    CHECK(!strcmp(get("B", "save/Settings/Settings.json"), "{b}"), "① B 的 Settings 不该被动");
-    CHECK(dsync("A", 1, 0) == 0 && dsync("B", 1, 0) == 0, "① 再同步一次两边都应无动作");
+    CHECK(dsync("A", 0, 0) == 2, "① A should upload 2 units (Alice, _stash)");
+    CHECK(dsync("B", 1, 0) == 2, "① B should download 2 units");
+    CHECK(get("B", "save/Alice/Alice.d2s") && !strcmp(get("B", "save/Alice/Alice.d2s"), "a1"), "① B's Alice should be a1");
+    CHECK(mtime("B", "save/Alice/Alice.d2s") == 1000, "① modification time should be restored to 1000, got %ld", mtime("B", "save/Alice/Alice.d2s"));
+    CHECK(get("B", "save/ModernSharedStashSoftCoreV2/ModernSharedStashSoftCoreV2.d2i") && !strcmp(get("B", "save/ModernSharedStashSoftCoreV2/ModernSharedStashSoftCoreV2.d2i"), "m1"), "① B's shared stash should be m1");
+    CHECK(!strcmp(get("B", "save/Settings/Settings.json"), "{b}"), "① B's Settings should not be touched");
+    CHECK(dsync("A", 1, 0) == 0 && dsync("B", 1, 0) == 0, "① syncing once more should do nothing on either side");
     // (2) Only B changed (2000) -> B uploads while running; A gets it at startup, and A's former copy goes to backup
     put("B", "save/Alice/Alice.d2s", "b2", 2000);
-    CHECK(dsync("B", 0, 0) == 1, "② B 应上传 1 个");
-    CHECK(dsync("A", 0, 0) == 0 && !strcmp(get("A", "save/Alice/Alice.d2s"), "a1"), "② A 运行中不该改本地");
-    CHECK(dsync("A", 1, 0) == 1 && !strcmp(get("A", "save/Alice/Alice.d2s"), "b2"), "② A 启动后应是 b2");
-    CHECK(get("A", "bak/Alice-1000000/Alice/Alice.d2s") && !strcmp(get("A", "bak/Alice-1000000/Alice/Alice.d2s"), "a1"), "② A 被覆盖的 a1 应在备份 Alice-1000000");
+    CHECK(dsync("B", 0, 0) == 1, "② B should upload 1");
+    CHECK(dsync("A", 0, 0) == 0 && !strcmp(get("A", "save/Alice/Alice.d2s"), "a1"), "② A should not change local files while running");
+    CHECK(dsync("A", 1, 0) == 1 && !strcmp(get("A", "save/Alice/Alice.d2s"), "b2"), "② A should have b2 after startup");
+    CHECK(get("A", "bak/Alice-1000000/Alice/Alice.d2s") && !strcmp(get("A", "bak/Alice-1000000/Alice/Alice.d2s"), "a1"), "② A's overwritten a1 should be in backup Alice-1000000");
     // (3) Both sides changed, B wrote later (A's 3000 uploaded first, B 3500) -> B still uploads while running (last write wins), the cloud's former a3 goes to B's backup; A gets b3 at startup
     put("A", "save/Alice/Alice.d2s", "a3", 3000); put("B", "save/Alice/Alice.d2s", "b3", 3500);
-    CHECK(dsync("A", 0, 0) == 1, "③ A 先上传");
-    CHECK(dsync("B", 0, 0) == 1, "③ B 后写也上传");
-    CHECK(get("B", "bak/Alice-3000000/Alice/Alice.d2s") && !strcmp(get("B", "bak/Alice-3000000/Alice/Alice.d2s"), "a3"), "③ 被覆盖的云端 a3 应在 B 的备份");
-    CHECK(dsync("A", 1, 0) == 1 && !strcmp(get("A", "save/Alice/Alice.d2s"), "b3"), "③ A 启动后应是 b3");
+    CHECK(dsync("A", 0, 0) == 1, "③ A uploads first");
+    CHECK(dsync("B", 0, 0) == 1, "③ B wrote later and uploads too");
+    CHECK(get("B", "bak/Alice-3000000/Alice/Alice.d2s") && !strcmp(get("B", "bak/Alice-3000000/Alice/Alice.d2s"), "a3"), "③ the overwritten cloud a3 should be in B's backup");
+    CHECK(dsync("A", 1, 0) == 1 && !strcmp(get("A", "save/Alice/Alice.d2s"), "b3"), "③ A should have b3 after startup");
     // (4) Both sides changed, A wrote later (A's 5000 uploaded; B's 4000 not uploaded before restarting) -> B gets A's a4 at startup, b4 goes to backup Alice-4000000
-    put("A", "save/Alice/Alice.d2s", "a4", 5000); CHECK(dsync("A", 0, 0) == 1, "④ A 上传");
+    put("A", "save/Alice/Alice.d2s", "a4", 5000); CHECK(dsync("A", 0, 0) == 1, "④ A uploads");
     put("B", "save/Alice/Alice.d2s", "b4", 4000);
-    CHECK(dsync("B", 1, 0) == 1 && !strcmp(get("B", "save/Alice/Alice.d2s"), "a4"), "④ B 启动后应是 a4（云端 5000 > 本机 4000）");
-    CHECK(get("B", "bak/Alice-4000000/Alice/Alice.d2s") && !strcmp(get("B", "bak/Alice-4000000/Alice/Alice.d2s"), "b4"), "④ B 被覆盖的 b4 应在备份");
+    CHECK(dsync("B", 1, 0) == 1 && !strcmp(get("B", "save/Alice/Alice.d2s"), "a4"), "④ B should have a4 after startup (cloud 5000 > local 4000)");
+    CHECK(get("B", "bak/Alice-4000000/Alice/Alice.d2s") && !strcmp(get("B", "bak/Alice-4000000/Alice/Alice.d2s"), "b4"), "④ B's overwritten b4 should be in backup");
     // (5) The cloud package has not finished downloading (ready returns 0) -> skip, local files untouched
-    put("A", "save/Alice/Alice.d2s", "a5", 6000); CHECK(dsync("A", 0, 0) == 1, "⑤ A 上传");
-    { char s[1024], b[1024], t[1024]; path(s, "B", "save"); path(b, "B", "bak"); path(t, "B", "state"); CHECK(dm_cloud_sync(s, c, b, t, 1, 0, no_skip) == 0 && !strcmp(get("B", "save/Alice/Alice.d2s"), "a4"), "⑤ 没下载好时 B 应不动"); }
-    CHECK(dsync("B", 1, 0) == 1 && !strcmp(get("B", "save/Alice/Alice.d2s"), "a5"), "⑤ 下载好后 B 应是 a5");
+    put("A", "save/Alice/Alice.d2s", "a5", 6000); CHECK(dsync("A", 0, 0) == 1, "⑤ A uploads");
+    { char s[1024], b[1024], t[1024]; path(s, "B", "save"); path(b, "B", "bak"); path(t, "B", "state"); CHECK(dm_cloud_sync(s, c, b, t, 1, 0, no_skip) == 0 && !strcmp(get("B", "save/Alice/Alice.d2s"), "a4"), "⑤ B should stay untouched while the download is unfinished"); }
+    CHECK(dsync("B", 1, 0) == 1 && !strcmp(get("B", "save/Alice/Alice.d2s"), "a5"), "⑤ B should have a5 once downloaded");
     // (6) A deletes Alice -> deletion marker in the cloud; B also deletes at startup and B's copy goes to backup; B's backup keeps only 3 copies (before this there were 1000000 not on B, 3000000, 4000000, plus 6000000 = 3 copies)
     { char p[1024]; path(p, "A", "save/Alice/Alice.d2s"); unlink(p); path(p, "A", "save/Alice/Alice.key"); unlink(p); path(p, "A", "save/Alice"); rmdir(p); }
-    CHECK(dsync("A", 0, 7000000) == 1, "⑥ A 应写删除标记");
-    CHECK(dsync("B", 1, 0) == 1 && !get("B", "save/Alice/Alice.d2s"), "⑥ B 启动后 Alice 应被删");
-    CHECK(get("B", "bak/Alice-6000000/Alice/Alice.d2s") && !strcmp(get("B", "bak/Alice-6000000/Alice/Alice.d2s"), "a5"), "⑥ B 被删的 a5 应在备份");
-    CHECK(count_bak("B", "Alice-") == 3, "⑥ B 的 Alice 备份应留 3 份，实为 %d", count_bak("B", "Alice-"));
+    CHECK(dsync("A", 0, 7000000) == 1, "⑥ A should write a deletion marker");
+    CHECK(dsync("B", 1, 0) == 1 && !get("B", "save/Alice/Alice.d2s"), "⑥ B's Alice should be deleted after startup");
+    CHECK(get("B", "bak/Alice-6000000/Alice/Alice.d2s") && !strcmp(get("B", "bak/Alice-6000000/Alice/Alice.d2s"), "a5"), "⑥ B's deleted a5 should be in backup");
+    CHECK(count_bak("B", "Alice-") == 3, "⑥ B should keep 3 backups of Alice, got %d", count_bak("B", "Alice-"));
     for (long t = 8; t <= 9; t++) { char v[8]; snprintf(v, sizeof v, "x%ld", t); put("B", "save/Bob/Bob.d2s", v, t * 1000); }   // unrelated characters are not affected
-    CHECK(dsync("B", 1, 0) == 1, "⑥ B 的新角色 Bob 上传");
+    CHECK(dsync("B", 1, 0) == 1, "⑥ B's new character Bob uploads");
     // (7) After the deletion A created a character with the same name again (9500) -> upload (revive); B gets it at startup
     put("A", "save/Alice/Alice.d2s", "a7", 9500);
-    CHECK(dsync("A", 1, 0) == 2 && !strcmp(get("A", "save/Bob/Bob.d2s"), "x9"), "⑦ A：Alice 上传 + Bob 下载");
-    CHECK(dsync("B", 1, 0) == 1 && get("B", "save/Alice/Alice.d2s") && !strcmp(get("B", "save/Alice/Alice.d2s"), "a7"), "⑦ B 启动后应有新建的 Alice a7");
+    CHECK(dsync("A", 1, 0) == 2 && !strcmp(get("A", "save/Bob/Bob.d2s"), "x9"), "⑦ A: Alice uploads + Bob downloads");
+    CHECK(dsync("B", 1, 0) == 1 && get("B", "save/Alice/Alice.d2s") && !strcmp(get("B", "save/Alice/Alice.d2s"), "a7"), "⑦ B should have the recreated Alice a7 after startup");
     // (8) Shared stash: B changes it (10000) -> A gets it at startup
     put("B", "save/SharedStashSoftCoreV2.d2i", "s8", 10000);
-    CHECK(dsync("B", 0, 0) == 1 && dsync("A", 1, 0) == 1 && !strcmp(get("A", "save/SharedStashSoftCoreV2.d2i"), "s8"), "⑧ A 的共享仓库应是 s8");
-    CHECK(!strcmp(get("A", "save/ModernSharedStashSoftCoreV2/ModernSharedStashSoftCoreV2.d2i"), "m1"), "⑧ 共享仓库的另一个文件应保留 m1");
+    CHECK(dsync("B", 0, 0) == 1 && dsync("A", 1, 0) == 1 && !strcmp(get("A", "save/SharedStashSoftCoreV2.d2i"), "s8"), "⑧ A's shared stash should be s8");
+    CHECK(!strcmp(get("A", "save/ModernSharedStashSoftCoreV2/ModernSharedStashSoftCoreV2.d2i"), "m1"), "⑧ the shared stash's other file should keep m1");
     // (9) The save directory was emptied by something other than the game (the state file is still there) -> at startup it does not count as a deletion, everything is fetched back from the cloud, and no deletion marker appears in the cloud
     { char p[1024]; path(p, "A", "save"); char cmd[1200]; snprintf(cmd, sizeof cmd, "rm -rf '%s'", p); system(cmd); mkdir(p, 0755); }
-    CHECK(dsync("A", 1, 0) == 3, "⑨ A 启动应下载 3 个（Alice、Bob、_stash）");
-    CHECK(get("A", "save/Alice/Alice.d2s") && !strcmp(get("A", "save/Alice/Alice.d2s"), "a7") && get("A", "save/Bob/Bob.d2s") && !strcmp(get("A", "save/SharedStashSoftCoreV2.d2i"), "s8"), "⑨ A 应拿回 Alice a7、Bob、共享仓库 s8");
-    CHECK(dsync("B", 1, 0) == 0 && get("B", "save/Alice/Alice.d2s"), "⑨ B 不受影响（没有删除标记传过来）");
+    CHECK(dsync("A", 1, 0) == 3, "⑨ A should download 3 at startup (Alice, Bob, _stash)");
+    CHECK(get("A", "save/Alice/Alice.d2s") && !strcmp(get("A", "save/Alice/Alice.d2s"), "a7") && get("A", "save/Bob/Bob.d2s") && !strcmp(get("A", "save/SharedStashSoftCoreV2.d2i"), "s8"), "⑨ A should get back Alice a7, Bob, shared stash s8");
+    CHECK(dsync("B", 1, 0) == 0 && get("B", "save/Alice/Alice.d2s"), "⑨ B is unaffected (no deletion marker came over)");
     // (10) The backup directory cannot be written (here it is blocked with a regular file of the same name) -> neither overwrite nor delete touches local files; after unblocking it proceeds as usual (previously it still overwrote / deleted when the backup write failed)
     { char s[1024], c2[1024], b[1024], t2[1024], bf[1024]; snprintf(c2, sizeof c2, "%s/cloud2", R); mkdir(c2, 0755);
       #define SY(dev, down, now) (path(s, dev, "save"), path(b, dev, "bak"), path(t2, dev, "state"), dm_cloud_sync(s, c2, b, t2, down, now, NULL))
       put("F", "save/Settings/Settings.json", "{}", 1);   // F is a device that already has a save directory
-      put("E", "save/Eve/Eve.d2s", "e1", 1000); CHECK(SY("E", 0, 0) == 1 && SY("F", 1, 0) == 1 && get("F", "save/Eve/Eve.d2s") && !strcmp(get("F", "save/Eve/Eve.d2s"), "e1"), "⑩ 准备：F 拿到 Eve e1");
-      put("E", "save/Eve/Eve.d2s", "e2", 2000); CHECK(SY("E", 0, 0) == 1, "⑩ E 上传 e2");
+      put("E", "save/Eve/Eve.d2s", "e1", 1000); CHECK(SY("E", 0, 0) == 1 && SY("F", 1, 0) == 1 && get("F", "save/Eve/Eve.d2s") && !strcmp(get("F", "save/Eve/Eve.d2s"), "e1"), "⑩ setup: F gets Eve e1");
+      put("E", "save/Eve/Eve.d2s", "e2", 2000); CHECK(SY("E", 0, 0) == 1, "⑩ E uploads e2");
       path(bf, "F", "bak"); FILE *f = fopen(bf, "w"); fclose(f);          // F's backup directory location is a regular file: the directory cannot be created
-      CHECK(SY("F", 1, 0) == 0 && get("F", "save/Eve/Eve.d2s") && !strcmp(get("F", "save/Eve/Eve.d2s"), "e1"), "⑩ 备份写不进时 F 不应覆盖，仍是 e1");
+      CHECK(SY("F", 1, 0) == 0 && get("F", "save/Eve/Eve.d2s") && !strcmp(get("F", "save/Eve/Eve.d2s"), "e1"), "⑩ F should not overwrite while the backup cannot be written, still e1");
       unlink(bf);
-      CHECK(SY("F", 1, 0) == 1 && get("F", "save/Eve/Eve.d2s") && !strcmp(get("F", "save/Eve/Eve.d2s"), "e2") && get("F", "bak/Eve-1000000/Eve/Eve.d2s") && !strcmp(get("F", "bak/Eve-1000000/Eve/Eve.d2s"), "e1"), "⑩ 解开后 F 换成 e2，e1 整份在备份里");
+      CHECK(SY("F", 1, 0) == 1 && get("F", "save/Eve/Eve.d2s") && !strcmp(get("F", "save/Eve/Eve.d2s"), "e2") && get("F", "bak/Eve-1000000/Eve/Eve.d2s") && !strcmp(get("F", "bak/Eve-1000000/Eve/Eve.d2s"), "e1"), "⑩ once unblocked F switches to e2, the whole e1 is in the backup");
       { char p2[1024]; path(p2, "E", "save/Eve/Eve.d2s"); unlink(p2); path(p2, "E", "save/Eve"); rmdir(p2); }
-      CHECK(SY("E", 0, 3000000) == 1, "⑩ E 运行中删了 Eve，写删除标记");
+      CHECK(SY("E", 0, 3000000) == 1, "⑩ E deleted Eve while running, writes a deletion marker");
       char bk[1100]; snprintf(bk, sizeof bk, "%s.keep", bf); rename(bf, bk); f = fopen(bf, "w"); fclose(f);   // move the existing backup directory aside first, then block it with a regular file
-      CHECK(SY("F", 1, 0) == 0 && get("F", "save/Eve/Eve.d2s"), "⑩ 备份写不进时 F 不应删 Eve");
+      CHECK(SY("F", 1, 0) == 0 && get("F", "save/Eve/Eve.d2s"), "⑩ F should not delete Eve while the backup cannot be written");
       unlink(bf); rename(bk, bf);
-      CHECK(SY("F", 1, 0) == 1 && !get("F", "save/Eve/Eve.d2s") && get("F", "bak/Eve-2000000/Eve/Eve.d2s"), "⑩ 解开后 F 删 Eve，e2 整份在备份里");
+      CHECK(SY("F", 1, 0) == 1 && !get("F", "save/Eve/Eve.d2s") && get("F", "bak/Eve-2000000/Eve/Eve.d2s"), "⑩ once unblocked F deletes Eve, the whole e2 is in the backup");
       #undef SY
     }
     // (11)-(15) Chronicle replaced wholesale by an empty one: a new device's first sync takes the cloud as authoritative; the shared stash must not be overwritten by a copy with "clearly less" (another cloud directory cloud3, devices G / H)
@@ -120,62 +120,62 @@ int main(void) {
       #define S3(dev, down) (path(s3, dev, "save"), path(b3, dev, "bak"), path(t3, dev, "state"), dm_cloud_sync(s3, c3, b3, t3, down, 0, NULL))
       #define D2I "save/ModernSharedStashSoftCoreV2/ModernSharedStashSoftCoreV2.d2i"
       put_d2i("G", 5, 300, 1000); put_vault("G", 3, 1000);
-      CHECK(S3("G", 0) == 1, "⑫ 云端为空：G 首次同步上传共享仓库");
+      CHECK(S3("G", 0) == 1, "⑫ cloud empty: G's first sync uploads the shared stash");
       dm_cloud_conflict_take();
       put_d2i("H", 0, 148, 5000);   // H freshly installed: the empty shared stash the game just created, with a timestamp newer than the cloud's
-      CHECK(S3("H", 0) == 0 && d2i_items("H", D2I) == 0, "⑪ 新设备运行中首次同步：不传不改（不能拿空仓库盖云端）");
-      CHECK(S3("H", 1) == 1 && d2i_items("H", D2I) == 5 && get("H", "save/ModernSharedStashSoftCoreV2.swvault"), "⑪ 新设备启动首次同步：以云端为准，拿到 5 件与编年史仓库");
-      CHECK(count_bak("H", "_stash-") == 1, "⑪ 新设备本来那份空仓库进备份");
-      CHECK(!dm_cloud_conflict_take(), "⑪ 正常首次同步不算冲突");
-      put_d2i("G", 6, 400, 6000); CHECK(S3("G", 0) == 1, "⑭ G 编年史变长（400）照常上传");
-      CHECK(S3("H", 1) == 1 && d2i_items("H", D2I) == 6, "⑭ H 启动拿到 G 的新版");
+      CHECK(S3("H", 0) == 0 && d2i_items("H", D2I) == 0, "⑪ new device's first sync while running: no upload, no change (an empty stash must not overwrite the cloud)");
+      CHECK(S3("H", 1) == 1 && d2i_items("H", D2I) == 5 && get("H", "save/ModernSharedStashSoftCoreV2.swvault"), "⑪ new device's first sync at startup: the cloud wins, gets the 5 items and the Chronicle vault");
+      CHECK(count_bak("H", "_stash-") == 1, "⑪ the new device's own empty stash goes to backup");
+      CHECK(!dm_cloud_conflict_take(), "⑪ a normal first sync is not a conflict");
+      put_d2i("G", 6, 400, 6000); CHECK(S3("G", 0) == 1, "⑭ G's Chronicle grew (400), uploads as usual");
+      CHECK(S3("H", 1) == 1 && d2i_items("H", D2I) == 6, "⑭ H gets G's new version at startup");
       put_d2i("H", 0, 148, 7000);   // the shared stash on H somehow became empty (chronicle 148, 0 items), with a newer timestamp
-      CHECK(S3("H", 0) == 0, "⑬ H 运行中要上传变空的那份：拦下");
-      CHECK(dm_cloud_conflict_take() == 1, "⑬ 拦下记冲突（进局弹提示）");
-      CHECK(S3("G", 1) == 0 && d2i_items("G", D2I) == 6, "⑬ 云端没被盖：G 仍是 6 件");
-      put_d2i("H", 7, 500, 7500); CHECK(S3("H", 0) == 1, "⑮ H 正常玩：编年史 500 上传");
+      CHECK(S3("H", 0) == 0, "⑬ H wants to upload the emptied copy while running: blocked");
+      CHECK(dm_cloud_conflict_take() == 1, "⑬ the block records a conflict (a notice pops up on entering a run)");
+      CHECK(S3("G", 1) == 0 && d2i_items("G", D2I) == 6, "⑬ the cloud was not overwritten: G still has 6 items");
+      put_d2i("H", 7, 500, 7500); CHECK(S3("H", 0) == 1, "⑮ H plays normally: Chronicle 500 uploads");
       put_d2i("G", 6, 450, 7600);   // G wrote 450 itself without having synced H's 500 (both sides changed, G wrote later)
-      CHECK(S3("G", 0) == 0, "⑮ G 运行中要拿编年史 450 盖云端的 500：拦下");
-      CHECK(S3("G", 1) == 0 && d2i_items("G", D2I) == 6, "⑮ G 启动：云端 500 比本机 450 时刻早但编年史长——按后写赢会上传，被拦；本机不动");
-      CHECK(dm_cloud_conflict_take() == 1, "⑮ 记冲突");
+      CHECK(S3("G", 0) == 0, "⑮ G wants to overwrite the cloud's Chronicle 500 with 450 while running: blocked");
+      CHECK(S3("G", 1) == 0 && d2i_items("G", D2I) == 6, "⑮ G at startup: the cloud's 500 is older than the local 450 but its Chronicle is longer -- last write wins would upload, it is blocked; local files untouched");
+      CHECK(dm_cloud_conflict_take() == 1, "⑮ conflict recorded");
       { char p3[1024]; path(p3, "H", "save/ModernSharedStashSoftCoreV2.swvault"); unlink(p3); } put_d2i("H", 7, 500, 8000);
-      CHECK(S3("H", 0) == 0 && dm_cloud_conflict_take() == 1, "⑬ 编年史仓库侧文件没了（云端有 3 件）：拦下");
+      CHECK(S3("H", 0) == 0 && dm_cloud_conflict_take() == 1, "⑬ the Chronicle vault side file is gone (the cloud has 3 items): blocked");
       put_vault("H", 0, 8100); put_d2i("H", 0, 500, 8100);
-      CHECK(S3("H", 0) == 1 && !dm_cloud_conflict_take(), "⑯ 正常玩法：共享仓库物品取空、编年史仓库取空（文件还在，0 件），编年史没变短——照常上传");
+      CHECK(S3("H", 0) == 1 && !dm_cloud_conflict_take(), "⑯ normal play: shared stash items taken out, Chronicle vault emptied (file still there, 0 items), Chronicle not shorter -- uploads as usual");
       // (17) That rf3 shape: cloud hardcore stash has 2 items and the chronicle is still the freshly created 148; the local copy was replaced by the empty file the game freshly creates (0 items, 148), the state record is still there and the cloud is unchanged = takes the "only local changed" upload
       { char cd[1024]; snprintf(cd, sizeof cd, "%s/cloud4", R); mkdir(cd, 0755);
         #define S4(dev, down) (path(s3, dev, "save"), path(b3, dev, "bak"), path(t3, dev, "state"), dm_cloud_sync(s3, cd, b3, t3, down, 0, NULL))
-        put_d2i("J", 2, 148, 1000); CHECK(S4("J", 1) == 1, "⑰ 准备：J 上传 2 件、编年史 148 的仓库");
+        put_d2i("J", 2, 148, 1000); CHECK(S4("J", 1) == 1, "⑰ setup: J uploads a stash with 2 items and Chronicle 148");
         put_d2i("J", 0, 148, 2000); dm_cloud_conflict_take();
-        CHECK(S4("J", 0) == 0 && dm_cloud_conflict_take() == 1, "⑰ 运行中要拿新建空档（0 件、148）盖 2 件的那份：拦下");
-        CHECK(S4("J", 1) == 0, "⑰ 启动时同样拦下（不上传）");
-        put_d2i("J", 0, 300, 3000); CHECK(S4("J", 0) == 1, "⑰ 编年史长过新建大小的仓库取空：照常上传");
+        CHECK(S4("J", 0) == 0 && dm_cloud_conflict_take() == 1, "⑰ wants to overwrite the 2-item copy with a freshly created empty file (0 items, 148) while running: blocked");
+        CHECK(S4("J", 1) == 0, "⑰ blocked at startup too (no upload)");
+        put_d2i("J", 0, 300, 3000); CHECK(S4("J", 0) == 1, "⑰ a stash emptied with a Chronicle longer than the fresh size: uploads as usual");
         // (18) The real rf3 shape: the cloud hardcore stash is another device's preset (stash_seed.h), and the local device has no hardcore stash file yet (startup sync runs before the preset is written) -> not blocked, no prompt; uploading after the local device writes the preset is not blocked either
 #ifdef T_HAVE_STASH_SEED
         { char cd5[1024]; snprintf(cd5, sizeof cd5, "%s/cloud5", R); mkdir(cd5, 0755);
           #define S5(dev, down) (path(s3, dev, "save"), path(b3, dev, "bak"), path(t3, dev, "state"), dm_cloud_sync(s3, cd5, b3, t3, down, 0, NULL))
           #define HC "save/ModernSharedStashHardCoreV2/ModernSharedStashHardCoreV2.d2i"
-          put_bin("K", HC, g_stash_seed, sizeof g_stash_seed, 1000); put_d2i("K", 3, 400, 1000); CHECK(S5("K", 1) == 1, "⑱ 准备：K 上传（专家仓库是预置）");
+          put_bin("K", HC, g_stash_seed, sizeof g_stash_seed, 1000); put_d2i("K", 3, 400, 1000); CHECK(S5("K", 1) == 1, "⑱ setup: K uploads (the hardcore stash is the preset)");
           { char p5[1024]; path(p5, "K", HC); unlink(p5); } put_d2i("K", 3, 400, 2000); dm_cloud_conflict_take();
-          S5("K", 0); CHECK(!dm_cloud_conflict_take(), "⑱ 本机还没有专家仓库档、云端只是预置：不算丢东西，不弹");
-          put_bin("K", HC, g_stash_seed, sizeof g_stash_seed, 3000); S5("K", 0); CHECK(!dm_cloud_conflict_take(), "⑱ 本机写了预置再上传：不拦");
+          S5("K", 0); CHECK(!dm_cloud_conflict_take(), "⑱ no local hardcore stash file yet, the cloud holds only the preset: nothing is lost, no notice");
+          put_bin("K", HC, g_stash_seed, sizeof g_stash_seed, 3000); S5("K", 0); CHECK(!dm_cloud_conflict_take(), "⑱ the local device wrote the preset and uploads: not blocked");
           // (19) The reverse: the cloud has real content and the local copy is the preset -> still blocked
           put_d2i("K", 5, 600, 4000); S5("K", 0); dm_cloud_conflict_take();
           { uint8_t big[700]; memset(big, 0, sizeof big); uint32_t l1 = 68, l2 = 300; memcpy(big, "\x55\xaa\x55\xaa", 4); memcpy(big + 16, &l1, 4); memcpy(big + 64, "JM", 2); big[66] = 9; memcpy(big + 68, "\x55\xaa\x55\xaa", 4); memcpy(big + 84, &l2, 4); big[132] = 0xc0;
-            put_bin("K", HC, big, 68 + 300, 5000); CHECK(S5("K", 0) == 1, "⑲ 准备：专家仓库有 9 件、编年史 300 上传"); }
+            put_bin("K", HC, big, 68 + 300, 5000); CHECK(S5("K", 0) == 1, "⑲ setup: hardcore stash with 9 items, Chronicle 300 uploads"); }
           put_bin("K", HC, g_stash_seed, sizeof g_stash_seed, 6000);
-          CHECK(S5("K", 0) == 0 && dm_cloud_conflict_take() == 1, "⑲ 本机变回预置要盖 9 件的那份：拦下");
+          CHECK(S5("K", 0) == 0 && dm_cloud_conflict_take() == 1, "⑲ the local copy reverted to the preset wants to overwrite the 9-item copy: blocked");
           #undef HC
           #undef S5
         }
 #else
-        printf("跳过 ⑱ ⑲：没有共享仓库预置 stash_seed.h（公开仓库不带）\n");
+        printf("skipping ⑱ ⑲: no shared stash seed stash_seed.h (the public repository does not ship it)\n");
 #endif
         #undef S4
       }
       #undef D2I
       #undef S3
     }
-    printf("t_cloudsync: %d 项，%d 失败\n", checks, fails);
+    printf("t_cloudsync: %d checks, %d failed\n", checks, fails);
     return fails != 0;
 }

@@ -15,7 +15,7 @@ def scan(text, where):
     for no, line in enumerate(text.split('\n'), 1):
         code = line.split('//', 1)[0]
         for nm in NATIVE:
-            if re.search(r'"%s"' % re.escape(nm), code): bad.append('%s:%d 出现原版控件名「%s」：%s' % (where, no, nm, line.strip()[:120]))
+            if re.search(r'"%s"' % re.escape(nm), code): bad.append('%s:%d uses the original-game widget name "%s": %s' % (where, no, nm, line.strip()[:120]))
     return bad
 
 VIS = re.compile(r'\+\s*0x5[01]\)\s*=(?!=)')
@@ -26,7 +26,7 @@ def vis_scan(text, where):   # lines that write the visible flag directly; those
         m = re.match(r'static\s+\w+\s+(\w+)\(', line)
         if m: inside = m.group(1) if m.group(1) in GUARDED else None
         code = line.split('//', 1)[0]
-        if VIS.search(code) and not inside: bad.append('%s:%d 直接写了可见位（要走 %s）：%s' % (where, no, ' / '.join(GUARDED), line.strip()[:120]))
+        if VIS.search(code) and not inside: bad.append('%s:%d writes the visible flag directly (go through %s): %s' % (where, no, ' / '.join(GUARDED), line.strip()[:120]))
         if line.startswith('}'): inside = None
     return bad
 
@@ -44,23 +44,23 @@ def rect_scan(text, where):
         for pm in RECT_PTR.finditer(code): ptrs.add(pm.group(1))
         code = RECT_PTR.sub('', code)   # the declaration itself (int32_t *name = ...) does not count as a write
         hit = RECT_DIRECT.search(code) or any(re.search(r'(?<![\w.>])(?:\*\s*%s|%s\s*\[\s*\d\s*\])\s*=(?!=)' % (q, q), code) for q in ptrs)
-        if hit and fn not in RECT_OK: bad.append('%s:%d 在 %s 里直接写了控件矩形（原版控件走 mv_offset、我们的走 ui_move_ours）：%s' % (where, no, fn, line.strip()[:120]))
+        if hit and fn not in RECT_OK: bad.append('%s:%d writes a widget rectangle directly in %s (original-game widgets go through mv_offset, ours through ui_move_ours): %s' % (where, no, fn, line.strip()[:120]))
     return bad
 
 def pages_pump(src):
     i = src.find('static void ui_pages_pump(')
-    if i < 0: raise SystemExit('native_write_scan：dm_cursor.c 里找不到 ui_pages_pump（改名了要同步这里）')
+    if i < 0: raise SystemExit('native_write_scan: ui_pages_pump not found in dm_cursor.c (if it was renamed, update this script)')
     j = src.find('\n}\n', i)
     return src[i:j]
 
 def main():
     if '--selftest' in sys.argv:
-        if not scan('    vu_show(vu_find(bk, "grid", 2), 0);', 'selftest') or scan('    vu_show(vu_find(vt, "TouchV_Back", 0), 1);   // "grid" 只在注释里', 'selftest') \
+        if not scan('    vu_show(vu_find(bk, "grid", 2), 0);', 'selftest') or scan('    vu_show(vu_find(vt, "TouchV_Back", 0), 1);   // "grid" only in a comment', 'selftest') \
            or not vis_scan('static void f(uint64_t w) {\n    *(uint8_t *)(w + 0x50) = 0;\n}', 'selftest') or vis_scan('static void ui_show_ours(uint64_t w, int on) {\n    *(uint8_t *)(w + 0x50) = 1;\n}\n    if (*(uint8_t *)(w + 0x50) == 1) x();', 'selftest') \
            or not rect_scan('static void f(uint64_t w) {\n    int32_t *r = (int32_t *)(w + 0x70); r[0] = 5;\n}', 'selftest') or not rect_scan('static void g(uint64_t w) {\n    *(int32_t *)(w + 0x74) = 3;\n}', 'selftest') \
            or rect_scan('static void k(uint64_t w) {\n    int32_t *rx = (int32_t *)(w + 0x70), ww = *(int32_t *)(w + 0x78); if (*rx) x();\n}\nstatic void mv_offset(uint64_t w) {\n    int32_t *v = (int32_t *)(w + 0x70); *v = 1;\n}\nstatic int h(float *r) {\n    r[0] = 1.0f; int x = *(int32_t *)(w + 0x70); return x;\n}', 'selftest'):
-            print('✗ native_write_scan 自检失败：该报的没报或不该报的报了'); return 1
-        print('✓ native_write_scan 自检：违规行会报红、注释里的名字不算')
+            print('✗ native_write_scan selftest failed: a violation was not reported, or a clean line was'); return 1
+        print('✓ native_write_scan selftest: violating lines are reported, names in comments do not count')
     host = next(a for a in sys.argv[1:] if not a.startswith('--'))
     bad = scan(open(os.path.join(host, 'dm_vault_ui.c'), encoding='utf-8').read(), 'dm_vault_ui.c')
     bad += scan(pages_pump(open(os.path.join(host, 'dm_cursor.c'), encoding='utf-8').read()), 'dm_cursor.c ui_pages_pump')
@@ -68,8 +68,8 @@ def main():
     for f in srcs: bad += vis_scan(open(os.path.join(host, f), encoding='utf-8', errors='replace').read(), f)
     bad += rect_scan(open(os.path.join(host, 'dm_cursor.c'), encoding='utf-8').read(), 'dm_cursor.c')
     if bad:
-        print('✗ 我们的功能碰了原版控件（编年史页 / 个人仓库页码只许写 TouchVault / TouchPgPage 底下的；可见位只许走带守卫的函数）：'); [print('   ' + b) for b in bad]; return 1
-    print('✓ 编年史页与个人仓库页码不碰原版储藏箱控件（扫 %d 个名字）；宿主 %d 个源文件没有绕过守卫直接写可见位；dm_cursor.c 写控件矩形只在 mv_offset / ui_move_ours 里' % (len(NATIVE), len(srcs))); return 0
+        print('✗ our features touched original-game widgets (the Chronicle page / personal stash page numbers may only write widgets under TouchVault / TouchPgPage; the visible flag only through guarded functions):'); [print('   ' + b) for b in bad]; return 1
+    print('✓ the Chronicle page and personal stash page numbers do not touch the original stash widgets (%d names scanned); none of the %d host source files writes the visible flag around the guards; dm_cursor.c writes widget rectangles only in mv_offset / ui_move_ours' % (len(NATIVE), len(srcs))); return 0
 
 if __name__ == '__main__':
     sys.exit(main())

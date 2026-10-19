@@ -29,5 +29,5 @@ for i,e in enumerate(ev):
         if g[1]=='P': need = g[4]=='load'; break      # next use is as an attachment: needed if loaded, not needed if cleared / load skippable (dontcare)
     if not need:
         save+=e[5]; nsave+=1; rows[(e[9][0],e[6],e[7],e[8])]+=e[5]
-print('帧 %d：附件写出 %d 个、%.1f MB；可证不需要 %d 个、%.1f MB（%.0f%%）；附件读入 %.1f MB（不判）'%(FA,nst,tot/1e6,nsave,save/1e6,100*save/tot if tot else 0,load_b/1e6))
-for k,v in rows.most_common(10): print('  %s fmt%d %dx%d：%.1f MB'%(k[0]=='d' and '深度' or '颜色',k[1],k[2],k[3],v/1e6))
+print('frame %d: attachment stores %d, %.1f MB; provably unneeded %d, %.1f MB (%.0f%%); attachment loads %.1f MB (not judged)'%(FA,nst,tot/1e6,nsave,save/1e6,100*save/tot if tot else 0,load_b/1e6))
+for k,v in rows.most_common(10): print('  %s fmt%d %dx%d: %.1f MB'%(k[0]=='d' and 'depth' or 'color',k[1],k[2],k[3],v/1e6))

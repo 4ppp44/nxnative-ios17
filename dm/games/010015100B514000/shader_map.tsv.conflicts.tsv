@@ -1,2 +1,2 @@
-# kind: evidence  控制段键冲突裁定：本作键已含代码区（dm/gfx/tools/shader_split.py），不会有同键异码，表空
+# kind: evidence  control-section key conflict rulings: this game's keys already include the code area (dm/gfx/tools/shader_split.py), so one key never has two different codes; empty
 dm_ctl_sha16	chosen_pc	class	candidates	records

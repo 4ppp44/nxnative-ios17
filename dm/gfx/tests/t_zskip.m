@@ -6,7 +6,7 @@ module_t g_mod[MAX_MOD]; int g_nmod;
 void svc_thread_dump(void) {}
 uint64_t now_ns(void) { return bp_now(); }
 static int fail, count;
-#define EXPECT(name, want, got) do { uint64_t w=(want), g=(got); count++; printf("%s 期望 %llu → 真结果 %llu %s\n", name, (unsigned long long)w, (unsigned long long)g, w==g?"✓":"✗"); fail += w != g; } while (0)
+#define EXPECT(name, want, got) do { uint64_t w=(want), g=(got); count++; printf("%s expected %llu → got %llu %s\n", name, (unsigned long long)w, (unsigned long long)g, w==g?"✓":"✗"); fail += w != g; } while (0)
 typedef struct { uint8_t *p; size_t n; } chain;
 static chain chain_new(void) { chain c={0}; if (posix_memalign((void **)&c.p,getpagesize(),65536)) abort(); memset(c.p,0,65536); mtl_pool_add(c.p,65536); return c; }
 static void emit(chain *c, unsigned op, const void *a, size_t n) { size_t z=(8+n+7)&~7ull; op_hdr h={op,(uint32_t)z}; memcpy(c->p+c->n,&h,8); if(n) memcpy(c->p+c->n+8,a,n); c->n+=z; }
@@ -19,7 +19,7 @@ static void bind_tex(chain *c, int id) { p_bind_handles b={.stage=1,.first=0,.n=
 static void draw_cmd(chain *c) { p_draw d={NVN_DRAW_PRIMITIVE_TRIANGLES,0,3}; emit(c,OP_DRAW,&d,sizeof d); }
 static void blend(chain *c) { color_st col={1,NVN_LOGIC_OP_COPY,NVN_ALPHA_FUNC_ALWAYS}; p_bind_state x={.kind=1};memcpy(x.bytes,&col,sizeof col);emit(c,OP_BIND_STATE,&x,sizeof x); blend_st b={0,NVN_BLEND_FUNC_SRC_ALPHA,NVN_BLEND_FUNC_ONE_MINUS_SRC_ALPHA,NVN_BLEND_FUNC_ONE,NVN_BLEND_FUNC_ZERO,NVN_BLEND_EQUATION_ADD,NVN_BLEND_EQUATION_ADD};x.kind=0;memcpy(x.bytes,&b,sizeof b);emit(c,OP_BIND_STATE,&x,sizeof x); }
 static void ds_off(chain *c) { ds_st d={0,0,NVN_DEPTH_FUNC_ALWAYS,0,NVN_STENCIL_FUNC_ALWAYS,NVN_STENCIL_FUNC_ALWAYS,NVN_STENCIL_OP_KEEP,NVN_STENCIL_OP_KEEP,NVN_STENCIL_OP_KEEP,NVN_STENCIL_OP_KEEP,NVN_STENCIL_OP_KEEP,NVN_STENCIL_OP_KEEP}; p_bind_state x={.kind=5}; memcpy(x.bytes,&d,sizeof d); emit(c,OP_BIND_STATE,&x,sizeof x); }
-static void readback(const tex_t *t, uint8_t out[256]) { id<MTLBuffer> b=[g_dev newBufferWithLength:256 options:MTLResourceStorageModeShared]; [blit() copyFromTexture:tex_mtl(t) sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(8,8,1) toBuffer:b destinationOffset:0 destinationBytesPerRow:32 destinationBytesPerImage:256]; uint64_t f=mtl_sub_commit(); EXPECT("提交完成",1,mtl_wait(f,5000000000ull)); EXPECT("提交反馈无错误",0,mtl_last_commit_error()); memcpy(out,b.contents,256); }
+static void readback(const tex_t *t, uint8_t out[256]) { id<MTLBuffer> b=[g_dev newBufferWithLength:256 options:MTLResourceStorageModeShared]; [blit() copyFromTexture:tex_mtl(t) sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(8,8,1) toBuffer:b destinationOffset:0 destinationBytesPerRow:32 destinationBytesPerImage:256]; uint64_t f=mtl_sub_commit(); EXPECT("submit completed",1,mtl_wait(f,5000000000ull)); EXPECT("no error in commit feedback",0,mtl_last_commit_error()); memcpy(out,b.contents,256); }
 static NvProg *g_tkeep[256]; static int g_tnkeep;   /* Program objects in the tests are permanent: after a free, a new object may land at the same address, and the pipeline cache, keyed by object address, would return the old pipeline (in production program objects are never freed) */
 static void setup_prog(prog_t *pg) { NSError *e=nil; id<MTLLibrary> l=[g_dev newLibraryWithSource:@"#include <metal_stdlib>\nusing namespace metal; vertex float4 v(uint n[[vertex_id]]){float2 p[3]={float2(-1,-1),float2(3,-1),float2(-1,3)};return float4(p[n],0,1);}\nfragment float4 red(){return float4(1,0,0,0.5);}\nstruct A{texture2d<float> t[[id(0)]];}; fragment float4 sample(constant A&a[[buffer(0)]]){return a.t.read(uint2(0));}\n" options:nil error:&e]; if(!l){fprintf(stderr,"%s\n",e.localizedDescription.UTF8String);abort();} for(int i=0;i<2;i++)pg[i].serial=8000+i; for(int i=0;i<2;i++){NvProg *p=[NvProg new];p->sh[0]=[NvShader new];p->sh[0]->fn=[l newFunctionWithName:@"v"];p->sh[1]=[NvShader new];p->sh[1]->stage=1;p->sh[1]->fn=[l newFunctionWithName:i?@"sample":@"red"];if(i){p->sh[1]->rf.nb=1;p->sh[1]->rf.b[0]=(nvn_rbind){.kind=NVN_RB_TEX,.reg=0,.dtt=2};p->sh[1]->ae=[p->sh[1]->fn newArgumentEncoderWithBufferIndex:0];}if(g_tnkeep<256)g_tkeep[g_tnkeep++]=p;serial_put(pg[i].serial,p);} }
 // Zero-source skip unit tests (production mtl_exec + hand-written shaders): the sample shader's output = texel (0,0) of the sampled texture - homogeneous linear in the sampled value; the fact table is injected in the test
@@ -41,9 +41,9 @@ static int run(int mode, int enabled, uint8_t px[256]) {
     mtl_sub_begin(); uint64_t hh=(uint64_t)c.p; mtl_sub_index(&hh,1); mtl_exec(c.p); int n=zskip_test_count(); readback(&b,px); return n;
 }
 int main(void){@autoreleasepool{setvbuf(stdout,NULL,_IONBF,0);setenv("DM_NVN_TBDR","1",1);mtl_init();uint8_t on[256],off[256];
-    run(0,0,off); int n=run(0,1,on); EXPECT("不在事实表：不跳过",0,n); EXPECT("不在事实表：开关逐字节相同",0,(uint64_t)(memcmp(on,off,256)!=0));
+    run(0,0,off); int n=run(0,1,on); EXPECT("not in the fact table: no skip",0,n); EXPECT("not in the fact table: on/off byte-identical",0,(uint64_t)(memcmp(on,off,256)!=0));
     zskip_test_add("feedfacefeedface",-1,0,0);
-    static const char *nm[5]={"正例（A 清 0）","传播（A 清 0 → 拷到 C）","反例 A 清成非 0","反例 A 清 0 后被画过","反例 B 清除值非 0"}; static const int want[5]={1,1,0,0,0};
-    for(int m=0;m<5;m++){ run(m,0,off); n=run(m,1,on); char t1[96],t2[96]; snprintf(t1,sizeof t1,"%s：跳过次数",nm[m]); snprintf(t2,sizeof t2,"%s：开关逐字节相同",nm[m]);
-        EXPECT(t1,want[m],n); EXPECT(t2,0,(uint64_t)(memcmp(on,off,256)!=0)); if(m==2) EXPECT("反例 A 非 0：B 读回非 0",1,on[0]!=0); if(m==0) EXPECT("正例：B 读回全 0",0,on[0]|on[1]|on[2]|on[3]); }
-    printf("== %d 项，失败 %d ==\n",count,fail); return fail!=0; }}
+    static const char *nm[5]={"positive case (A cleared to 0)","propagation (A cleared to 0 → copied to C)","negative: A cleared to non-zero","negative: A drawn to after clearing to 0","negative: B clear value non-zero"}; static const int want[5]={1,1,0,0,0};
+    for(int m=0;m<5;m++){ run(m,0,off); n=run(m,1,on); char t1[96],t2[96]; snprintf(t1,sizeof t1,"%s: skip count",nm[m]); snprintf(t2,sizeof t2,"%s: on/off byte-identical",nm[m]);
+        EXPECT(t1,want[m],n); EXPECT(t2,0,(uint64_t)(memcmp(on,off,256)!=0)); if(m==2) EXPECT("negative A non-zero: B reads back non-zero",1,on[0]!=0); if(m==0) EXPECT("positive case: B reads back all 0",0,on[0]|on[1]|on[2]|on[3]); }
+    printf("== %d checks, %d failed ==\n",count,fail); return fail!=0; }}

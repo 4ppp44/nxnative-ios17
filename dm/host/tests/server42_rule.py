@@ -23,6 +23,6 @@ for bit in [0,1]:
   wantmove=3 if case=='valid'else None;wantstatus=3 if case=='badlen'else 1 if case in ['dead0','dead17','disabled_bit_guard','far']else 0
   ok=(ctx.get('fatal',False) or ctx.get('returned',False)) and ctx.get('move')==wantmove and (ctx.get('fatal',False)==(case=='nonplayer')) and (case=='nonplayer'or u.reg_read(UC_ARM64_REG_W0)==wantstatus)
   n+=1
-  if not ok:bad+=1;print('FAIL',bit,case,'期望move',wantmove,'→真',ctx,'status',u.reg_read(UC_ARM64_REG_W0))
-print(f'SERVER42_RULE {n}项，失败{bad}；真实RET到STOP/原致命停机判据；bit0/1合法请求Run3，长度/死亡/禁用位/坐标/非player原检查；不含下游真实速度')
+  if not ok:bad+=1;print('FAIL',bit,case,'expected move',wantmove,'→ got',ctx,'status',u.reg_read(UC_ARM64_REG_W0))
+print(f'SERVER42_RULE {n} cases, {bad} failed; real RET to STOP / original fatal-halt criterion; bit0/1 legal requests Run3, length / death / disable bit / coordinates / non-player original checks; real downstream speed not included')
 sys.exit(bool(bad))

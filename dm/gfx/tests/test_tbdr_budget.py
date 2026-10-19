@@ -19,7 +19,7 @@ class BudgetExport(unittest.TestCase):
             log.write_text(text)
             p = subprocess.run([sys.executable, str(TOOL), str(log), '700', '170', '--tsv=' + str(out)], capture_output=True, text=True)
             self.assertEqual(p.returncode, 0, p.stderr)
-            self.assertTrue(out.exists(), '全量通道 TSV 未导出')
+            self.assertTrue(out.exists(), 'the full pass TSV was not exported')
             with out.open() as f:
                 return list(csv.DictReader(f, delimiter='\t'))
 
@@ -37,7 +37,7 @@ class BudgetExport(unittest.TestCase):
 [pass] F700 Z 501 c ser=1 lv0 sl0 dontcare why=0
 [pass] F700 P 502 c0 ser=2 fmt=70 8x4 ms1 lv0 sl0 clear
 [pass] F700 K 502 st1 key={key}_b nb=1
-[pass] F700 B 502 st1 tex reg0 tid=1 实 ser=12 fmt=70 8x4x1
+[pass] F700 B 502 st1 tex reg0 tid=1 real ser=12 fmt=70 8x4x1
 [pass] F700 R 502 st1 ser=12
 [pass] F700 d 502 fs={key}_b vc=3
 [pass] F700 d 502 fs={key}_b vc=3
@@ -60,11 +60,11 @@ class BudgetExport(unittest.TestCase):
         # Both passes output 8×4; the actual bound views of the same ser=99 are 8×4 and 4×4 respectively.
         # RGBA8: independent expectations of 128 / 64 bytes; the later pass's size must not overwrite the earlier pass's.
         rows = self.export('''[pass] F700 P 1 c0 ser=1 fmt=70 8x4 ms1 lv0 sl0 clear
-[pass] F700 B 1 st1 tex reg0 tid=1 实 ser=99 fmt=70 8x4x1
+[pass] F700 B 1 st1 tex reg0 tid=1 real ser=99 fmt=70 8x4x1
 [pass] F700 R 1 st1 ser=99
 [pass] F700 d 1 fs=unknown_b vc=3
 [pass] F700 P 2 c0 ser=2 fmt=70 8x4 ms1 lv0 sl0 clear
-[pass] F700 B 2 st1 tex reg0 tid=2 实 ser=99 fmt=70 4x4x1
+[pass] F700 B 2 st1 tex reg0 tid=2 real ser=99 fmt=70 4x4x1
 [pass] F700 R 2 st1 ser=99
 [pass] F700 d 2 fs=unknown_b vc=3
 ''')
@@ -72,9 +72,9 @@ class BudgetExport(unittest.TestCase):
 
     def test_distinct_views_within_same_pass_are_kept(self):
         rows = self.export('''[pass] F700 P 1 c0 ser=1 fmt=70 8x4 ms1 lv0 sl0 clear
-[pass] F700 B 1 st1 tex reg0 tid=1 实 ser=99 fmt=70 8x4x1
+[pass] F700 B 1 st1 tex reg0 tid=1 real ser=99 fmt=70 8x4x1
 [pass] F700 R 1 st1 ser=99
-[pass] F700 B 1 st1 tex reg1 tid=2 实 ser=99 fmt=70 4x4x1
+[pass] F700 B 1 st1 tex reg1 tid=2 real ser=99 fmt=70 4x4x1
 [pass] F700 R 1 st1 ser=99
 [pass] F700 d 1 fs=unknown_b vc=3
 ''')

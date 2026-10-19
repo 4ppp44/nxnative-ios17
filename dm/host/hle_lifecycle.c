@@ -11,15 +11,15 @@ void granny_prof_dump(void);
 void hlecount_flush(void);
 void dm_host_shutdown(const char *why) {
     static _Atomic int once; if (atomic_exchange(&once, 1)) return;
-    uint64_t t0 = now_ns(); LOG("收到 %s：优雅退出", why);
+    uint64_t t0 = now_ns(); LOG("received %s: graceful exit", why);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1500 * NSEC_PER_MSEC), dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0), ^{
-        LOG("【红】优雅退出 1.5 秒未完成，直接退出"); _exit(0); });
+        LOG("[RED] graceful exit not done in 1.5 seconds, exiting at once"); _exit(0); });
     tact_prefetch_stop();
     granny_prof_dump();
     hlecount_flush();                               // DM_HLECOUNT: _exit does not run atexit, write a copy here
     dm_audio_suspend(1);
     dm_gfx_suspend(1);
-    LOG("优雅退出完成（%.3f 秒）", (now_ns() - t0) / 1e9);
+    LOG("graceful exit done (%.3f s)", (now_ns() - t0) / 1e9);
     _exit(0);
 }
 void dm_term_install(void) {

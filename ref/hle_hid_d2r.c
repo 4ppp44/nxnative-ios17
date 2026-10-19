@@ -49,7 +49,7 @@ void dm_pad_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry
     atomic_store(&g_pad_axes, (uint64_t)(uint16_t)lx | (uint64_t)(uint16_t)ly << 16 | (uint64_t)(uint16_t)rx << 32 | (uint64_t)(uint16_t)ry << 48);
 }
 void dm_input_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry) {
-    if (g_stall_ms < 0) { const char *e = getenv("DM_TEST_HID_STALL_MS"); g_stall_ms = e ? atoi(e) : 0; if (g_stall_ms) LOG("DM_TEST_HID_STALL_MS：A 每次按下沿后游戏取手柄先睡 %d ms", g_stall_ms); }
+    if (g_stall_ms < 0) { const char *e = getenv("DM_TEST_HID_STALL_MS"); g_stall_ms = e ? atoi(e) : 0; if (g_stall_ms) LOG("DM_TEST_HID_STALL_MS: after each A press edge the game's controller read first sleeps %d ms", g_stall_ms); }
     if (g_stall_ms > 0 && (buttons & DM_BTN_A) && !(g_in.buttons & DM_BTN_A)) atomic_store(&g_stall_due, 1);
     atomic_fetch_or(&g_press_latch, buttons & ~g_in.buttons);   // record newly pressed keys, guaranteeing the game reads them at least once (see fill)
     g_in.buttons = buttons; g_in.lx = lx; g_in.ly = ly; g_in.rx = rx; g_in.ry = ry;
@@ -63,7 +63,7 @@ static void ui_taps_step(void) {
         tp[n].fr = f; tp[n].x = x / 1000.0f; tp[n].y = y / 1000.0f; tp[n].kind = 0; const char *a = t + c;
         if (*a == ':') { a++; if (*a == 's' || *a == 'c') { tp[n].shift = *a == 's' ? 0x10 : 0x11; a++; } tp[n].kind = *a; int p = 0, q = 0;
             if ((*a == 'd' || *a == 'g') && sscanf(a + 1, "%d,%d", &p, &q) == 2) { tp[n].x2 = p / 1000.0f; tp[n].y2 = q / 1000.0f; } else tp[n].arg = atoi(a + 1); }
-        n++; } LOG("DM_UI_TAPS：%d 项", n); } }
+        n++; } LOG("DM_UI_TAPS: %d entries", n); } }
     uint64_t fr = dm_guest_frame();
     static int rel = -1; if (rel < 0) rel = getenv("DM_UI_TAPS_AT") != NULL;
     if (rel) { uint64_t b = dm_ui_taps_base(); if (!b || fr < b) return; fr -= b; }
@@ -71,7 +71,7 @@ static void ui_taps_step(void) {
         if (!k || k == 't') { int hold = k ? tp[i].arg : 6; if (tp[i].st == 0) { tp[i].st = 1; dm_ui_touch(0, x, y); } else if (tp[i].st == 1 && d >= hold) { tp[i].st = -1; dm_ui_touch(2, x, y); } continue; }
         if (k == 'N') { void dm_num_set(int); dm_num_set(tp[i].arg); tp[i].st = -1; continue; }   // set the quantity box value (dm_textinput.c; -1 all, -2 half)
         if (k == 'A') { void dm_shop_buy(void), dm_shop_sell_cursor(void), dm_stat_add(int, int), dm_skill_add_selected(void); int v = tp[i].arg;   // action entries (dm_actions.c): A1 buy, A2 sell what is on the cursor, A3 skill +1, A4 pick up the first sellable item in the inventory (for testing), A5 put the first potion in the inventory into the belt (for testing), A6 directly sell the first sellable item carried (for testing), A21-A24 immediately use the first potion / scroll / tome / cube in the inventory (for testing, dm_item_use), A1000+id put that item into the belt, A1xy add y (1 / 5 / 9 = all) to stat x (0–3)
-            if (v == 1) dm_shop_buy(); else if (v == 2) dm_shop_sell_cursor(); else if (v == 3) dm_skill_add_selected(); else if (v == 4) { void dm_test_hold_first_sellable(void); dm_test_hold_first_sellable(); } else if (v == 6) { void dm_test_sell_first(void); dm_test_sell_first(); } else if (v == 5) { void dm_test_belt_first_potion(void); dm_test_belt_first_potion(); } else if (v == 35 || v == 38 || v == 39) { void dm_inv_sort(int); dm_inv_sort(v == 35 ? 0 : v == 38 ? 3 : 4); } else if (v == 36) { void dm_name_random(void); dm_name_random(); } else if (v >= 44 && v <= 46) { void dm_test_identify(int); dm_test_identify(v - 43); } else if (v == 74) { void dm_held_stow(void); dm_held_stow(); } else if (v == 75) { void dm_test_swap_held(void); dm_test_swap_held(); } else if (v >= 70 && v <= 73) { dm_uiscreen_enable(v - 70); }   /* A70-A73: UI picture off / top-aligned / centered / bottom-aligned (through the same entry the front end uses) */ else if (v == 47 || v == 48) { dm_stash_take(v == 47 ? 1 : 3); } else if (v == 43) { dm_cursor_item_info ci; int hw = 0, hh = 0, c = dm_cursor_item(&ci), hd = dm_held_size(&hw, &hh); LOG("测试：光标物品 %s 容器 %d 格 %d,%d 占 %dx%d 叠数 %d；手上 %d（%dx%d）；等目标 %d", c ? ci.code : "无", c ? ci.container : 0, c ? ci.gx : 0, c ? ci.gy : 0, c ? ci.gw : 0, c ? ci.gh : 0, c ? ci.stack : 0, hd, hw, hh, dm_item_targeting()); } else if (v >= 50 && v <= 69) { void dm_test_stash_take(int); dm_test_stash_take(v - 50 ? v - 50 : 1); } else if (v >= 40 && v <= 42) { void dm_test_equip(int); dm_test_equip(v - 39); } else if (v == 33 || v == 34) { void dm_belt_expand(int); dm_belt_expand(v == 33); } else if (v == 31 || v == 32) { void dm_item_compare(int); dm_item_compare(v == 31); } else if (v == 30) { void dm_test_hover_at(float, float); dm_test_hover_at(x, y); } else if (v >= 21 && v <= 26) { void dm_test_use_first(int); dm_test_use_first(v - 20); } else if (v >= 1000) { void dm_belt_put(uint32_t); dm_belt_put((uint32_t)(v - 1000)); } else if (v >= 100) dm_stat_add(v / 10 % 10, v % 10 == 9 ? -1 : v % 10); tp[i].st = -1; continue; }
+            if (v == 1) dm_shop_buy(); else if (v == 2) dm_shop_sell_cursor(); else if (v == 3) dm_skill_add_selected(); else if (v == 4) { void dm_test_hold_first_sellable(void); dm_test_hold_first_sellable(); } else if (v == 6) { void dm_test_sell_first(void); dm_test_sell_first(); } else if (v == 5) { void dm_test_belt_first_potion(void); dm_test_belt_first_potion(); } else if (v == 35 || v == 38 || v == 39) { void dm_inv_sort(int); dm_inv_sort(v == 35 ? 0 : v == 38 ? 3 : 4); } else if (v == 36) { void dm_name_random(void); dm_name_random(); } else if (v >= 44 && v <= 46) { void dm_test_identify(int); dm_test_identify(v - 43); } else if (v == 74) { void dm_held_stow(void); dm_held_stow(); } else if (v == 75) { void dm_test_swap_held(void); dm_test_swap_held(); } else if (v >= 70 && v <= 73) { dm_uiscreen_enable(v - 70); }   /* A70-A73: UI picture off / top-aligned / centered / bottom-aligned (through the same entry the front end uses) */ else if (v == 47 || v == 48) { dm_stash_take(v == 47 ? 1 : 3); } else if (v == 43) { dm_cursor_item_info ci; int hw = 0, hh = 0, c = dm_cursor_item(&ci), hd = dm_held_size(&hw, &hh); LOG("test: cursor item %s container %d cell %d,%d size %dx%d stack %d; held %d (%dx%d); awaiting target %d", c ? ci.code : "none", c ? ci.container : 0, c ? ci.gx : 0, c ? ci.gy : 0, c ? ci.gw : 0, c ? ci.gh : 0, c ? ci.stack : 0, hd, hw, hh, dm_item_targeting()); } else if (v >= 50 && v <= 69) { void dm_test_stash_take(int); dm_test_stash_take(v - 50 ? v - 50 : 1); } else if (v >= 40 && v <= 42) { void dm_test_equip(int); dm_test_equip(v - 39); } else if (v == 33 || v == 34) { void dm_belt_expand(int); dm_belt_expand(v == 33); } else if (v == 31 || v == 32) { void dm_item_compare(int); dm_item_compare(v == 31); } else if (v == 30) { void dm_test_hover_at(float, float); dm_test_hover_at(x, y); } else if (v >= 21 && v <= 26) { void dm_test_use_first(int); dm_test_use_first(v - 20); } else if (v >= 1000) { void dm_belt_put(uint32_t); dm_belt_put((uint32_t)(v - 1000)); } else if (v >= 100) dm_stat_add(v / 10 % 10, v % 10 == 9 ? -1 : v % 10); tp[i].st = -1; continue; }
         if (k == 'W') { unsigned dm_world_tap(float, float); dm_world_tap(x, y); tp[i].st = -1; continue; }   // tap the game world (dm_world.c: tapping a target = interact)
         if (k == 'g') { float t = d / 60.0f; if (t > 1) t = 1;
             if (tp[i].st == 0) { tp[i].st = 1; int hz = fabsf(tp[i].x2 - x) * 16 > fabsf(tp[i].y2 - y) * 9; dm_ui_drag_begin(hz ? 2 : 1, x, y, tp[i].arg ? tp[i].arg / 1000.0f : 0.05f); }
@@ -161,9 +161,9 @@ static void cursor_tests_parse(void) {
     for (char *save, *tok = strtok_r(buf, ";", &save); tok; tok = strtok_r(NULL, ";", &save)) {
         char *colon = strrchr(tok, ':'); int x, y; char extra;
         if (!colon || sscanf(colon + 1, "%d,%d%c", &x, &y, &extra) != 2 || g_ncursor_tests == KMAX)
-            die("DM_TEST_CURSOR 项「%s」格式：UI消息触发:x,y", tok);
+            die("DM_TEST_CURSOR entry '%s' format: UI-message-trigger:x,y", tok);
         *colon = 0;
-        if (!*tok) die("DM_TEST_CURSOR 项触发串为空");
+        if (!*tok) die("DM_TEST_CURSOR entry has an empty trigger string");
         strncpy(g_cursor_tests[g_ncursor_tests].msg, tok, sizeof g_cursor_tests[0].msg - 1);
         g_cursor_tests[g_ncursor_tests].msg[sizeof g_cursor_tests[0].msg - 1] = 0;
         g_cursor_tests[g_ncursor_tests].x = (int32_t)x;
@@ -188,7 +188,7 @@ static void keys_on_uimsg(const char *cat, const char *act, const char *arg) {
     if (strstr(m, "InputMessage:ControllerActionEnd")) g_kend = 1;
     if (g_kcur < g_nsteps) {
         if (g_kstate != KS_PRE && g_steps[g_kcur].ok[0] && strstr(m, g_steps[g_kcur].ok)) {
-            LOG("hid 脚本步 %d 确认「%s」（第 %d 次按键，等待时钟单位 %llu，墙钟 %llu ms）", g_kcur + 1, m, g_ktries,
+            LOG("hid script step %d confirmed '%s' (press %d, waited %llu clock units, wall clock %llu ms)", g_kcur + 1, m, g_ktries,
                 (unsigned long long)(script_clock_now().value - g_kpress_clock), (unsigned long long)((now_ns() - g_kpress) / 1000000ull));
             if (g_kstate == KS_HOLD && (g_steps[g_kcur].mask & PK_TOUCH)) dm_touch_set(NULL, 0);
             if (g_kstate == KS_HOLD && (g_steps[g_kcur].mask & PK_CLICK)) dm_ui_touch(2, g_steps[g_kcur].tx, g_steps[g_kcur].ty);   // touch step confirmed while held: lift the finger
@@ -219,27 +219,27 @@ static uint32_t steps_now(void) {
             if (st->mask & PK_TOUCH) { dm_touch p = {0, st->tx, st->ty}; dm_touch_set(&p, 1); }
             if (st->mask & PK_MSG) dm_ui_send_queue(st->msg);
             if (st->mask & PK_CLICK) dm_ui_touch(0, st->tx, st->ty);
-            LOG("hid 脚本步 %d 按下 mask=%#x（前置「%s」）", g_kcur + 1, st->mask, st->pre);
+            LOG("hid script step %d pressed mask=%#x (pre '%s')", g_kcur + 1, st->mask, st->pre);
         } else if (g_kstate == KS_OK && t - g_kpress >= WALL_FALLBACK_NS) {
-            die("【红】hid 脚本步 %d：墙钟兜底超时（等待服务端拍 %llu，墙钟 %llu ms，确认「%s」）", g_kcur + 1,
+            die("[RED] hid script step %d: wall-clock fallback timeout (waited %llu server ticks, wall clock %llu ms, confirm '%s')", g_kcur + 1,
                 (unsigned long long)script_clock_elapsed(c, g_kpress_clock, g_kpress_server), (unsigned long long)((t - g_kpress) / 1000000ull), st->ok);
         } else if (g_kstate == KS_OK && script_clock_elapsed(c, g_kpress_clock, g_kpress_server) >= OK_WAIT_TICKS) {
-            if (g_ktries >= 3) die("【红】hid 脚本步 %d：按 3 次都没等到确认「%s」（等待服务端拍 %llu，墙钟 %llu ms）", g_kcur + 1, st->ok,
+            if (g_ktries >= 3) die("[RED] hid script step %d: no confirm '%s' after 3 presses (waited %llu server ticks, wall clock %llu ms)", g_kcur + 1, st->ok,
                 (unsigned long long)script_clock_elapsed(c, g_kpress_clock, g_kpress_server), (unsigned long long)((t - g_kpress) / 1000000ull));
-            LOG("hid 脚本步 %d 等待确认：服务端拍 %llu，墙钟 %llu ms；重按（第 %d 次）", g_kcur + 1,
+            LOG("hid script step %d waiting for confirm: %llu server ticks, wall clock %llu ms; pressing again (press %d)", g_kcur + 1,
                 (unsigned long long)script_clock_elapsed(c, g_kpress_clock, g_kpress_server), (unsigned long long)((t - g_kpress) / 1000000ull), g_ktries + 1);
             g_kstate = KS_HOLD; g_kpress = t; g_kpress_clock = c.value; g_kpress_server = c.server; g_krel = 0; g_kbeg = g_kend = 0; g_ktries++;
             if (st->mask & PK_TOUCH) { dm_touch p = {0, st->tx, st->ty}; dm_touch_set(&p, 1); }
             if (st->mask & PK_MSG) dm_ui_send_queue(st->msg);
             if (st->mask & PK_CLICK) dm_ui_touch(0, st->tx, st->ty);
-            LOG("hid 脚本步 %d 重按（第 %d 次）", g_kcur + 1, g_ktries);
+            LOG("hid script step %d pressed again (press %d)", g_kcur + 1, g_ktries);
         }
         if (g_kstate == KS_HOLD) {
             uint64_t held = script_clock_elapsed(c, g_kpress_clock, g_kpress_server);
             if (held < step_hold_units(st, c.server)) m = st->mask & ~(PK_TOUCH | PK_MSG | PK_CLICK);
-            else if (st->ok[0]) { LOG("hid 脚本步 %d 松开（服务端拍 %llu，按住 %llu 拍）", g_kcur + 1, (unsigned long long)c.value, (unsigned long long)held); g_krel = 1; g_kstate = KS_OK; if (st->mask & PK_TOUCH) dm_touch_set(NULL, 0); if (st->mask & PK_CLICK) dm_ui_touch(2, st->tx, st->ty); }
+            else if (st->ok[0]) { LOG("hid script step %d released (server tick %llu, held %llu ticks)", g_kcur + 1, (unsigned long long)c.value, (unsigned long long)held); g_krel = 1; g_kstate = KS_OK; if (st->mask & PK_TOUCH) dm_touch_set(NULL, 0); if (st->mask & PK_CLICK) dm_ui_touch(2, st->tx, st->ty); }
             else {                                                // no confirm item: done on release
-                LOG("hid 脚本步 %d 松开（时钟 %llu，按住 %llu 拍）", g_kcur + 1, (unsigned long long)c.value, (unsigned long long)held); g_krel = 1; if (st->mask & PK_TOUCH) dm_touch_set(NULL, 0); if (st->mask & PK_CLICK) dm_ui_touch(2, st->tx, st->ty);
+                LOG("hid script step %d released (clock %llu, held %llu ticks)", g_kcur + 1, (unsigned long long)c.value, (unsigned long long)held); g_krel = 1; if (st->mask & PK_TOUCH) dm_touch_set(NULL, 0); if (st->mask & PK_CLICK) dm_ui_touch(2, st->tx, st->ty);
                 g_kcur++; g_kstate = KS_PRE; g_ktries = 0; step_chain();
             }
         }
@@ -253,35 +253,35 @@ static void keys_parse(void) {
     const char *e = getenv("DM_KEYS"); if (!e) e = "";
     char buf[4096]; strncpy(buf, e, sizeof buf - 1); buf[sizeof buf - 1] = 0;
     for (char *save, *tok = strtok_r(buf, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
-        char *at = strchr(tok, '@'); if (!at) die("DM_KEYS 项「%s」缺 @时刻 / @消息", tok);
+        char *at = strchr(tok, '@'); if (!at) die("DM_KEYS entry '%s' lacks @time / @message", tok);
         *at = 0;
         uint32_t mask = 0; float tx = 0, ty = 0;
         if (tok[0] == 'T' && ((tok[1] >= '0' && tok[1] <= '9') || tok[1] == '.')) {   // touch point: T<x>:<y> (normalized coordinates of the rendered picture [0,1), origin at top left)
-            char *c = strchr(tok, ':'); if (!c) die("DM_KEYS 触点项「%s」格式：T<x>:<y>@前置…", tok);
+            char *c = strchr(tok, ':'); if (!c) die("DM_KEYS touch entry '%s' format: T<x>:<y>@pre…", tok);
             tx = (float)atof(tok + 1); ty = (float)atof(c + 1); mask = PK_TOUCH;
         }
         if (tok[0] == 'C' && ((tok[1] >= '0' && tok[1] <= '9') || tok[1] == '.')) {   // UI click: C<x>:<y> (normalized coordinates of the rendered picture), dm_ui_touch is sent once each for press / release
-            char *c = strchr(tok, ':'); if (!c) die("DM_KEYS 点击项「%s」格式：C<x>:<y>@前置…", tok);
+            char *c = strchr(tok, ':'); if (!c) die("DM_KEYS click entry '%s' format: C<x>:<y>@pre…", tok);
             tx = (float)atof(tok + 1); ty = (float)atof(c + 1); mask = PK_CLICK;
         }
         const char *msg = NULL;   // step that sends a UI message: MSG:<category>:<action>[:<argument>]@pre[>confirm] -- presses no key, at the due time sends this message to the UI root widget (after the character select page was switched to the keyboard-and-mouse UI the controller confirm key can no longer enter a run, so the last step of test run entry sends MainMenuHD:Play instead)
-        if (!strncmp(tok, "MSG:", 4)) { if (!strchr(tok + 4, ':') || strlen(tok + 4) >= sizeof g_steps[0].msg) die("DM_KEYS 消息项「%s」格式：MSG:<类别>:<动作>[:<参数>]@前置[>确认]", tok); msg = tok + 4; mask = PK_MSG; }
+        if (!strncmp(tok, "MSG:", 4)) { if (!strchr(tok + 4, ':') || strlen(tok + 4) >= sizeof g_steps[0].msg) die("DM_KEYS message entry '%s' format: MSG:<category>:<action>[:<argument>]@pre[>confirm]", tok); msg = tok + 4; mask = PK_MSG; }
         for (int i = 0; i < (int)(sizeof k_names / sizeof *k_names); i++) if (!strcmp(tok, k_names[i].name)) mask = k_names[i].mask;
         for (int i = 0; i < 4; i++) if (!strcmp(tok, k_stick[i].name)) mask = k_stick[i].mask;
-        if (!mask) die("DM_KEYS 未知键名「%s」", tok);
+        if (!mask) die("DM_KEYS unknown key name '%s'", tok);
         const char *v = at + 1;
         if ((*v >= '0' && *v <= '9') || *v == '.') {
-            if (mask & (PK_TOUCH | PK_MSG | PK_CLICK)) die("DM_KEYS 触点项 / 消息项只支持按 UI 消息的步（…@前置…），不支持按时刻");
+            if (mask & (PK_TOUCH | PK_MSG | PK_CLICK)) die("DM_KEYS touch / message entries only support UI-message steps (…@pre…), not timed ones");
             char *plus = strchr(v, '+');
             double t = atof(v), d = plus ? atof(plus + 1) : 0.2;
-            if (g_nkeys == KMAX) die("DM_KEYS 超过 %d 项", KMAX);
+            if (g_nkeys == KMAX) die("DM_KEYS has more than %d entries", KMAX);
             g_keys[g_nkeys++] = (typeof(g_keys[0])){mask, (uint64_t)(t * 1e9), (uint64_t)((t + d) * 1e9)};
         } else {
-            if (g_nsteps == KMAX) die("DM_KEYS 超过 %d 项", KMAX);
+            if (g_nsteps == KMAX) die("DM_KEYS has more than %d entries", KMAX);
             typeof(g_steps[0]) *st = &g_steps[g_nsteps++]; st->mask = mask; st->tx = tx; st->ty = ty; st->msg[0] = 0; if (msg) strcpy(st->msg, msg);
             const char *gt = strchr(v, '>');
             size_t np = gt ? (size_t)(gt - v) : strlen(v);
-            if (np >= sizeof st->pre || (gt && (!gt[1] || strlen(gt + 1) >= sizeof st->ok))) die("DM_KEYS 消息步「%s」格式：键@前置[%%延时秒][+按住秒][>确认]", v);
+            if (np >= sizeof st->pre || (gt && (!gt[1] || strlen(gt + 1) >= sizeof st->ok))) die("DM_KEYS message step '%s' format: key@pre[%%delay seconds][+hold seconds][>confirm]", v);
             memcpy(st->pre, v, np); st->pre[np] = 0;
             char *pp = strchr(st->pre, '+'); if (pp) { st->hold_override = 1; st->hold_seconds = atof(pp + 1); *pp = 0; }   // pre+hold seconds → 25 ticks/s in a run, 60 presented frames/s in the main menu; less than 1 unit cannot be sampled
             char *pc = strchr(st->pre, '%'); if (pc) { st->delay_seconds = atof(pc + 1); *pc = 0; }   // pre%seconds → 25 ticks/s in a run, 60 presented frames/s in the main menu
@@ -289,7 +289,7 @@ static void keys_parse(void) {
         }
     }
     if (g_nsteps || g_ncursor_tests) { g_steps[0].seen_pre = 0; if (g_nsteps && !g_steps[0].pre[0]) { script_clock c = script_clock_now(); g_steps[0].seen_pre = 1; g_steps[0].seen_at = now_ns(); g_steps[0].seen_clock = c.value; g_steps[0].seen_server = c.server; } void uimsg_subscribe(void (*)(const char *, const char *, const char *)); uimsg_subscribe(keys_on_uimsg); }
-    LOG("hid 脚本输入：按时刻 %d 项，按 UI 消息 %d 步", g_nkeys, g_nsteps);
+    LOG("hid script input: %d timed entries, %d UI-message steps", g_nkeys, g_nsteps);
 }
 static pthread_once_t g_kone = PTHREAD_ONCE_INIT;
 void hid_keys_init(void) { pthread_once(&g_kone, keys_parse); }
@@ -299,7 +299,7 @@ static uint64_t keys_now(void) {
     for (int i = 0; i < g_nkeys; i++) if (t >= g_keys[i].t0 && t < g_keys[i].t1) m |= g_keys[i].mask;
     static _Atomic uint64_t seen;                 // print one line the first time each key is really read by the game (proves the injection arrived)
     uint64_t newbits = m & ~atomic_fetch_or(&seen, m);
-    if (newbits) LOG("hid 脚本键首次被读到：mask=%#llx @%.2fs", newbits, t / 1e9);
+    if (newbits) LOG("hid script keys read for the first time: mask=%#llx @%.2fs", newbits, t / 1e9);
     return m;
 }
 
@@ -312,7 +312,7 @@ static void receipt_init(void) {
     const char *path = getenv("DM_HID_RECEIPT_LOG");
     if (path && *path) {
         g_receipt_file = fopen(path, "w");
-        if (!g_receipt_file) LOG("【红】HID返回收样文件打开失败：%s", path);
+        if (!g_receipt_file) LOG("[RED] HID receipt log file failed to open: %s", path);
     }
 }
 static void receipt(const NpadState *s, uint32_t id, uint32_t style, uint64_t km, uint64_t read_start_ns) {
@@ -332,7 +332,7 @@ static void receipt(const NpadState *s, uint32_t id, uint32_t style, uint64_t km
                 s->lx, s->ly, s->rx, s->ry, s->attributes, (unsigned long long)km);
         last = state; last_id = id; last_style = style; last_km = km; last_ns = t; have = 1; count++;
     }
-    if (fflush(g_receipt_file)) { LOG("【红】HID返回收样写入失败"); truncated = 1; }
+    if (fflush(g_receipt_file)) { LOG("[RED] HID receipt log write failed"); truncated = 1; }
     pthread_mutex_unlock(&g_receipt_lock);
 }
 
@@ -377,7 +377,7 @@ static void fill(NpadState *s, uint32_t id, uint32_t style) {
       if (tset > 0) { held = (s->buttons & 0xf) ? held + 1 : 0; if (held > tdelay) { s->rx = trx; s->ry = tryy; } } }
     if (s->lx || s->ly || (km & PK_MASK & ~(uint64_t)PK_TOUCH)) atomic_store(&g_stick_ns, now_ns());   // the last time the player's stick (front end / script pseudo-keys) was non-zero; a stick rewritten by the cursor does not count
     dm_cursor_apply(&s->buttons, &s->lx, &s->ly);   // pointer target: within this sample, rewrite the left stick / A according to the original game's cursor position (see dm_cursor.h)
-    { static uint64_t prev; if ((s->buttons & DM_BTN_L) && !(prev & DM_BTN_L)) { int n = atomic_fetch_add(&g_dm_l_presses, 1) + 1; if (n <= 3) LOG("取手柄处：「显示物品」键（L）交给了游戏，本进程第 %d 次", n); } prev = s->buttons; }   // number of presses of the 「显示物品」(Show Items) key (L) delivered to the game (used by the boss drop readout, dm_bossrush.c)
+    { static uint64_t prev; if ((s->buttons & DM_BTN_L) && !(prev & DM_BTN_L)) { int n = atomic_fetch_add(&g_dm_l_presses, 1) + 1; if (n <= 3) LOG("controller read: the 'Show Items' key (L) was delivered to the game, time %d in this process", n); } prev = s->buttons; }   // number of presses of the "Show Items" key (L) delivered to the game (used by the boss drop readout, dm_bossrush.c)
     if (km & PK_LSL) s->lx = -32767; if (km & PK_LSR) s->lx = 32767;   // script stick pseudo-keys: push to full (Horizon stick ±32767, up is positive)
     if (km & PK_LSU) s->ly = 32767;  if (km & PK_LSD) s->ly = -32767;
     s->attributes = ATTR_CONNECTED;
@@ -385,29 +385,29 @@ static void fill(NpadState *s, uint32_t id, uint32_t style) {
     receipt(s, id, style, km, read_start_ns);
 }
 
-HLE_FORCE("_ZN2nn3hid14InitializeNpadEv", "连 hid 服务；宿主从 dm_input 取输入", void, h_hid_InitNpad, void) {}
-HLE_FORCE("_ZN2nn3hid21InitializeTouchScreenEv", "连 hid 服务；触屏输入由前端另接", void, h_hid_InitTouch, void) {}
-HLE_FORCE("_ZN2nn3hid22SetSupportedNpadIdTypeEPKjm", "支持的手柄号；宿主固定", void, h_hid_SetIds, const uint32_t *ids, uint64_t n) { (void)ids; (void)n; }
+HLE_FORCE("_ZN2nn3hid14InitializeNpadEv", "connect to the hid service; the host takes input from dm_input", void, h_hid_InitNpad, void) {}
+HLE_FORCE("_ZN2nn3hid21InitializeTouchScreenEv", "connect to the hid service; touch input is wired separately by the front end", void, h_hid_InitTouch, void) {}
+HLE_FORCE("_ZN2nn3hid22SetSupportedNpadIdTypeEPKjm", "supported controller ids; fixed by the host", void, h_hid_SetIds, const uint32_t *ids, uint64_t n) { (void)ids; (void)n; }
 // BitFlagSet<32> is passed by value in a w register
-HLE_FORCE("_ZN2nn3hid24SetSupportedNpadStyleSetENS_4util10BitFlagSetILi32ENS0_12NpadStyleTagEEE", "支持的手柄样式；宿主固定", void, h_hid_SetStyles, uint32_t styles) { (void)styles; }
-HLE_FORCE("_ZN2nn3hid29SetNpadHandheldActivationModeENS0_26NpadHandheldActivationModeE", "掌机手柄激活方式；宿主固定", void, h_hid_SetHhMode, int m) { (void)m; }
-HLE_FORCE("_ZN2nn3hid15GetNpadStyleSetERKj", "手柄样式查询；跟 DM_OPMODE 走", uint32_t, h_hid_GetStyle, const uint32_t *id) { return style_of(*id); }
-HLE_FORCE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadFullKeyStateERKj", "全键手柄状态；取 dm_input", void, h_hid_GetFullKey, NpadState *s, const uint32_t *id) { fill(s, *id, STYLE_FULLKEY); }
-HLE_FORCE("_ZN2nn3hid12GetNpadStateEPNS0_17NpadHandheldStateERKj", "掌机手柄状态；取 dm_input", void, h_hid_GetHandheld, NpadState *s, const uint32_t *id) { fill(s, *id, STYLE_HANDHELD); }
+HLE_FORCE("_ZN2nn3hid24SetSupportedNpadStyleSetENS_4util10BitFlagSetILi32ENS0_12NpadStyleTagEEE", "supported controller styles; fixed by the host", void, h_hid_SetStyles, uint32_t styles) { (void)styles; }
+HLE_FORCE("_ZN2nn3hid29SetNpadHandheldActivationModeENS0_26NpadHandheldActivationModeE", "handheld controller activation mode; fixed by the host", void, h_hid_SetHhMode, int m) { (void)m; }
+HLE_FORCE("_ZN2nn3hid15GetNpadStyleSetERKj", "controller style query; follows DM_OPMODE", uint32_t, h_hid_GetStyle, const uint32_t *id) { return style_of(*id); }
+HLE_FORCE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadFullKeyStateERKj", "full-key controller state; from dm_input", void, h_hid_GetFullKey, NpadState *s, const uint32_t *id) { fill(s, *id, STYLE_FULLKEY); }
+HLE_FORCE("_ZN2nn3hid12GetNpadStateEPNS0_17NpadHandheldStateERKj", "handheld controller state; from dm_input", void, h_hid_GetHandheld, NpadState *s, const uint32_t *id) { fill(s, *id, STYLE_HANDHELD); }
 
 // Vibration: device count 0, the game will not initialize / send any further
-HLE_FORCE("_ZN2nn3hid20IsVibrationPermittedEv", "震动许可；宿主不支持（返回 bool）", unsigned, h_hid_VibPermit, void) { return 0; }
+HLE_FORCE("_ZN2nn3hid20IsVibrationPermittedEv", "vibration permission; not supported by the host (returns bool)", unsigned, h_hid_VibPermit, void) { return 0; }
 HLE_FORCE("_ZN2nn3hid25GetVibrationDeviceHandlesEPNS0_21VibrationDeviceHandleEiRKjNS_4util10BitFlagSetILi32ENS0_12NpadStyleTagEEE",
-          "震动设备；宿主 0 个", int, h_hid_GetVibHandles, void *out, int max, const uint32_t *id, uint32_t style) { (void)out; (void)max; (void)id; (void)style; return 0; }
-HLE_FORCE("_ZN2nn3hid25InitializeVibrationDeviceERKNS0_21VibrationDeviceHandleE", "震动；宿主不支持", void, h_hid_InitVib, const void *h) { (void)h; }
-HLE_FORCE("_ZN2nn3hid18SendVibrationValueERKNS0_21VibrationDeviceHandleERKNS0_14VibrationValueE", "震动；宿主不支持", void, h_hid_SendVib, const void *h, const void *v) { (void)h; (void)v; }
+          "vibration devices; 0 on the host", int, h_hid_GetVibHandles, void *out, int max, const uint32_t *id, uint32_t style) { (void)out; (void)max; (void)id; (void)style; return 0; }
+HLE_FORCE("_ZN2nn3hid25InitializeVibrationDeviceERKNS0_21VibrationDeviceHandleE", "vibration; not supported by the host", void, h_hid_InitVib, const void *h) { (void)h; }
+HLE_FORCE("_ZN2nn3hid18SendVibrationValueERKNS0_21VibrationDeviceHandleERKNS0_14VibrationValueE", "vibration; not supported by the host", void, h_hid_SendVib, const void *h, const void *v) { (void)h; (void)v; }
 
 // Touchscreen: nn::hid::TouchScreenState<16> = { int64 sampling; int32 count; int32 _r; TouchState touches[16] (0x28 each) }
 // Contents are filled by hle_touch.c from the touch points pushed by the front end (see that file for the layout and the short-press latch); the game only looks at entry 0, returns the number of states written, 1
 typedef struct { int64_t sampling; int32_t count, _r; uint8_t touches[16][0x28]; } TouchState16;
 _Static_assert(sizeof(TouchState16) == 0x290, "TouchScreenState<16>");
 int touch_fill(void *out, uint64_t now_ns);
-HLE_FORCE("_ZN2nn3hid20GetTouchScreenStatesILm16EEEiPNS0_16TouchScreenStateIXT_EEEi", "触屏状态：前端触点（hle_touch.c）", int, h_hid_GetTouch, TouchState16 *out, int n) {
+HLE_FORCE("_ZN2nn3hid20GetTouchScreenStatesILm16EEEiPNS0_16TouchScreenStateIXT_EEEi", "touch screen states: front-end touch points (hle_touch.c)", int, h_hid_GetTouch, TouchState16 *out, int n) {
     if (n < 1) return 0;
     touch_fill(out, guest_ns());
     return 1;

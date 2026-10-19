@@ -6,7 +6,7 @@
 int main(void) {
     @autoreleasepool {
         id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
-        printf("设备 %s\n", dev.name.UTF8String);
+        printf("device %s\n", dev.name.UTF8String);
         int mapped = 0, ok = 0, exact = 0, sub = 0, none = 0, bad_srgb = 0;
         static const int srgb[] = {0x37, 0x38, 0x45, 0x46, 0x47, 0x48, 0x4E, 0x9B, 0x9C};
         for (int f = 0x01; f <= 0x9C; f++) {
@@ -20,14 +20,14 @@ int main(void) {
             d.usage = MTLTextureUsageShaderRead | (depth ? MTLTextureUsageRenderTarget : 0);
             if (depth) d.swizzle = MTLTextureSwizzleChannelsDefault;     // remapping is not allowed for depth formats
             id<MTLTexture> t = [dev newTextureWithDescriptor:d];
-            if (t) ok++; else printf("建不成 NVN %#x → MTL %u\n", f, m);
+            if (t) ok++; else printf("cannot create NVN %#x → MTL %u\n", f, m);
         }
         for (unsigned i = 0; i < sizeof srgb / sizeof *srgb; i++) {
             uint32_t m; nvn_fmt_to_mtl(srgb[i], &m, NULL);
-            if (!(m == 71 || m == 81 || m == 131 || m == 133 || m == 135 || m == 153)) { printf("sRGB 未落到 _sRGB：%#x → %u\n", srgb[i], m); bad_srgb++; }
+            if (!(m == 71 || m == 81 || m == 131 || m == 133 || m == 135 || m == 153)) { printf("sRGB did not land on _sRGB: %#x → %u\n", srgb[i], m); bad_srgb++; }
         }
-        for (int f = 0x87; f <= 0x94; f++) { uint32_t m; nvn_fmt_to_mtl(f, &m, NULL); if (m < 186 || m > 200) { printf("ASTC sRGB 未落到 _sRGB：%#x → %u\n", f, m); bad_srgb++; } }
-        printf("映射非 0：%d（精确 %d、替代 %d），无对应 %d，共 %d；实建成 %d/%d；sRGB 违例 %d\n", mapped, exact, sub, none, 0x9C, ok, mapped, bad_srgb);
+        for (int f = 0x87; f <= 0x94; f++) { uint32_t m; nvn_fmt_to_mtl(f, &m, NULL); if (m < 186 || m > 200) { printf("ASTC sRGB did not land on _sRGB: %#x → %u\n", f, m); bad_srgb++; } }
+        printf("mapped (nonzero): %d (exact %d, substitute %d), no match %d, total %d; actually created %d/%d; sRGB violations %d\n", mapped, exact, sub, none, 0x9C, ok, mapped, bad_srgb);
         return (ok == mapped && !bad_srgb) ? 0 : 1;
     }
 }

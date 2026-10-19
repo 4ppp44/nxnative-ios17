@@ -23,9 +23,9 @@ for toks in lines:
         elif t.startswith('-D'): defs.append(t)
         elif t.endswith(('.c', '.m', '.S')): srcs.append(os.path.normpath(os.path.join(host, t)))
         i += 1
-assert srcs, '编译命令里没有源文件'
+assert srcs, 'no source files in the compile command'
 dup = sorted({s for s in srcs if srcs.count(s) > 1})
-if dup: sys.exit('编译命令里源文件重复（Makefile 显式列与通配重叠？）：' + ' '.join(dup))
+if dup: sys.exit('duplicate source files in the compile command (explicit Makefile entries overlapping a wildcard?): ' + ' '.join(dup))
 os.makedirs(f'{gen}/src'); os.makedirs(f'{gen}/main')
 dirs = []
 for s in srcs:

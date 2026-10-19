@@ -61,7 +61,7 @@ static int run_case(id<MTLDevice> dev, id<MTLCommandQueue> queue, const test_cas
             for (unsigned y = 0; y < records[i].rows; y++)
                 ok &= !memcmp((unsigned char *)dst.contents + records[i].off + ((size_t)z * records[i].rows + y) * records[i].pitch,
                               expected + records[i].off + ((size_t)z * records[i].rows + y) * records[i].pitch, row_bytes);
-        printf("%s L%u layer%u: %s %zu 字节\n", tc->name, records[i].level, records[i].layer, ok ? "OK" : "BAD", records[i].bytes);
+        printf("%s L%u layer%u: %s %zu bytes\n", tc->name, records[i].level, records[i].layer, ok ? "OK" : "BAD", records[i].bytes);
         fail |= !ok;
     }
     free(records); free(expected); free(source);
@@ -71,8 +71,8 @@ static int run_case(id<MTLDevice> dev, id<MTLCommandQueue> queue, const test_cas
 int main(void) {
     @autoreleasepool {
         id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
-        if (!dev) { printf("BAD：无 Metal 设备\n"); return 1; }
-        if (nvn_deswz_gpu_init(dev)) { printf("BAD：GPU 解排布管线初始化失败\n"); return 1; }
+        if (!dev) { printf("BAD: no Metal device\n"); return 1; }
+        if (nvn_deswz_gpu_init(dev)) { printf("BAD: GPU deswizzle pipeline init failed\n"); return 1; }
         id<MTLCommandQueue> queue = [dev newCommandQueue];
         test_case cases[] = {
             {"RGBA8 1x1", {1, NVN_FORMAT_RGBA8, 0, 0, 1, 1, 1, 1, 0}},
@@ -94,7 +94,7 @@ int main(void) {
         int fail = 0; unsigned n = 0;
         for (unsigned i = 0; i < sizeof(cases) / sizeof(*cases); i++) { fail |= run_case(dev, queue, &cases[i], i == 1); n++; }
 
-        test_case neg = {"负对照", {1, NVN_FORMAT_RGBA8, 0, 0, 64, 64, 1, 2, 0}};
+        test_case neg = {"negative control", {1, NVN_FORMAT_RGBA8, 0, 0, 64, 64, 1, 2, 0}};
         nvn_texlayout nl; nvn_tex_layout(&neg.d, &nl);
         size_t rb, expected_bytes = 64 * 64 * 4; rb = 64 * 4;
         unsigned char *lin = malloc(expected_bytes), *srcmem = calloc(1, nl.size + 32);
@@ -103,10 +103,10 @@ int main(void) {
         id<MTLBuffer> db = [dev newBufferWithLength:expected_bytes options:MTLResourceStorageModeShared]; memset(db.contents, 0xCD, db.length);
         id<MTLCommandBuffer> ncb = [queue commandBuffer]; id<MTLComputeCommandEncoder> ne = [ncb computeCommandEncoder];
         int enc_bad = nvn_deswz_gpu_encode(ne, sb, 0, &neg.d, 1, 0, db, 0, rb); [ne endEncoding]; [ncb commit]; [ncb waitUntilCompleted];
-        int mismatch = enc_bad || memcmp(db.contents, lin, expected_bytes) != 0; printf("负对照（错误 level）: %s %zu 字节\n", mismatch ? "OK（判红）" : "BAD（未判红）", expected_bytes); fail |= !mismatch;
+        int mismatch = enc_bad || memcmp(db.contents, lin, expected_bytes) != 0; printf("negative control (wrong level): %s %zu bytes\n", mismatch ? "OK (flagged)" : "BAD (not flagged)", expected_bytes); fail |= !mismatch;
         free(lin); free(srcmem);
 
-        test_case perf = {"性能参考", {1, NVN_FORMAT_RGBA8, 0, 0, 2048, 2048, 1, 12, 0}};
+        test_case perf = {"performance reference", {1, NVN_FORMAT_RGBA8, 0, 0, 2048, 2048, 1, 12, 0}};
         nvn_texlayout pl; nvn_tex_layout(&perf.d, &pl); size_t perf_size = 0;
         for (unsigned l = 0; l < perf.d.levels; l++) { uint32_t pr, py, pz, pb; uint64_t pbase; unsigned pth, ptd; nvn_deswizzle_geom(&perf.d, l, 0, &pr, &py, &pz, &pbase, &pth, &ptd, &pb); perf_size += (size_t)pr * py; }
         unsigned char *ps = calloc(1, pl.size), *pd = calloc(1, perf_size); size_t perf_cursor = 0;
@@ -115,8 +115,8 @@ int main(void) {
         id<MTLBuffer> psrc = [dev newBufferWithBytes:ps length:pl.size options:MTLResourceStorageModeShared];
         id<MTLBuffer> pdst = [dev newBufferWithLength:perf_size options:MTLResourceStorageModeShared];
         c0 = now_ns(); id<MTLCommandBuffer> pcb = [queue commandBuffer]; id<MTLComputeCommandEncoder> pe = [pcb computeCommandEncoder]; perf_cursor = 0; for (unsigned l = 0; l < perf.d.levels; l++) { uint32_t pr, py, pz, pb; uint64_t pbase; unsigned pth, ptd; nvn_deswizzle_geom(&perf.d, l, 0, &pr, &py, &pz, &pbase, &pth, &ptd, &pb); nvn_deswz_gpu_encode(pe, psrc, 0, &perf.d, l, 0, pdst, perf_cursor, pr); perf_cursor += (size_t)pr * py; } [pe endEncoding]; uint64_t encode_ns = now_ns() - c0; [pcb commit]; [pcb waitUntilCompleted]; uint64_t gpu_ns = now_ns() - c0;
-        printf("性能参考：2048x2048 RGBA8 带 mip（约 22 MB），CPU nvn_deswizzle %.3f ms；GPU 编码 %.3f ms + waitUntilCompleted 总计 %.3f ms\n", cpu_ns / 1e6, encode_ns / 1e6, gpu_ns / 1e6); free(ps); free(pd);
-        printf("== %u 例全过 / 负对照判红 ==\n", n);
+        printf("performance reference: 2048x2048 RGBA8 with mips (about 22 MB), CPU nvn_deswizzle %.3f ms; GPU encode %.3f ms + waitUntilCompleted, total %.3f ms\n", cpu_ns / 1e6, encode_ns / 1e6, gpu_ns / 1e6); free(ps); free(pd);
+        printf("== all %u cases pass / negative control flagged ==\n", n);
         return fail != 0;
     }
 }

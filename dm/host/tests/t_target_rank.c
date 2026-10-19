@@ -14,26 +14,26 @@ static float run(const void *unit, float score) {
     float out; memcpy(&out, &frame[32], 4); return out;
 }
 static void expect(const char *what, float got, float want) {
-    cases++; if (got == want) printf("✓ %s（%g）\n", what, got); else { fails++; printf("✗ %s：得 %g，期望 %g\n", what, got, want); }
+    cases++; if (got == want) printf("✓ %s (%g)\n", what, got); else { fails++; printf("✗ %s: got %g, expected %g\n", what, got, want); }
 }
 int main(void) {
     target_rank_install();
     uint8_t data[0x40] = {0};
     struct { uint32_t type, cls, id, mode; uint64_t data; } unit = {1, 5, 77, 0, (uint64_t)(uintptr_t)data};
-    expect("普通僵尸（类 5、TypeFlag 0）分数不变", run(&unit, 0.5f), 0.5f);
-    data[0x1a] = 0x10; expect("随从（0x10）算普通", run(&unit, 0.5f), 0.5f);
-    data[0x1a] = 0x04; expect("冠军（0x04）+1000", run(&unit, 0.5f), 1000.5f);
-    data[0x1a] = 0x08; expect("独特（0x08）+1000", run(&unit, 0.25f), 1000.25f);
-    data[0x1a] = 0x02; expect("超级独特（0x02）+1000", run(&unit, 0.75f), 1000.75f);
-    data[0x1a] = 0; unit.cls = 156; expect("安达利尔（类 156，boss=1）+2000", run(&unit, 0.5f), 2000.5f);
-    unit.cls = 745; expect("3.3 新 Boss 巨像（类 745）+2000", run(&unit, 0.125f), 2000.125f);
-    unit.cls = 5; unit.type = 0; data[0x1a] = 0x08; expect("玩家单位（类型 0）不动", run(&unit, 0.5f), 0.5f);
-    unit.type = 1; unit.data = 0; data[0x1a] = 0; expect("怪物数据指针空：读不到，不动", run(&unit, 0.5f), 0.5f);
-    expect("候选单位空指针不动", run(NULL, 0.5f), 0.5f);
+    expect("normal zombie (class 5, TypeFlag 0): score unchanged", run(&unit, 0.5f), 0.5f);
+    data[0x1a] = 0x10; expect("minion (0x10) counts as normal", run(&unit, 0.5f), 0.5f);
+    data[0x1a] = 0x04; expect("champion (0x04) +1000", run(&unit, 0.5f), 1000.5f);
+    data[0x1a] = 0x08; expect("unique (0x08) +1000", run(&unit, 0.25f), 1000.25f);
+    data[0x1a] = 0x02; expect("super unique (0x02) +1000", run(&unit, 0.75f), 1000.75f);
+    data[0x1a] = 0; unit.cls = 156; expect("Andariel (class 156, boss=1) +2000", run(&unit, 0.5f), 2000.5f);
+    unit.cls = 745; expect("new 3.3 Boss Colossus (class 745) +2000", run(&unit, 0.125f), 2000.125f);
+    unit.cls = 5; unit.type = 0; data[0x1a] = 0x08; expect("player unit (type 0) untouched", run(&unit, 0.5f), 0.5f);
+    unit.type = 1; unit.data = 0; data[0x1a] = 0; expect("null monster data pointer: nothing to read, untouched", run(&unit, 0.5f), 0.5f);
+    expect("null candidate unit untouched", run(NULL, 0.5f), 0.5f);
     // Across tiers: the worst elite score (0.01+1000) is still higher than the best normal score (0.99); the worst Boss score is higher than the best elite score
     unit.data = (uint64_t)(uintptr_t)data; data[0x1a] = 0x04; float elite = run(&unit, 0.01f);
     data[0x1a] = 0; unit.cls = 211; float boss = run(&unit, 0.01f);
-    cases++; if (elite > 0.99f && boss > 1000.99f) printf("✓ 跨档优先：精英 %g > 普通 0.99，Boss %g > 精英 1000.99\n", elite, boss); else { fails++; printf("✗ 跨档优先\n"); }
-    printf("%s：%d/%d\n", fails ? "【红】自动选怪" : "自动选怪 全绿", cases - fails, cases);
+    cases++; if (elite > 0.99f && boss > 1000.99f) printf("✓ priority across tiers: elite %g > normal 0.99, Boss %g > elite 1000.99\n", elite, boss); else { fails++; printf("✗ priority across tiers\n"); }
+    printf("%s: %d/%d\n", fails ? "[RED] auto-targeting" : "auto-targeting all green", cases - fails, cases);
     return fails != 0;
 }

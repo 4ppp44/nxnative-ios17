@@ -83,6 +83,6 @@ for typ in [0,1]:
     wp=[0x49] if entry<0x600000 and typ==0 and mode==2 else []
     check(f'toggle packets entry={entry:x} type={typ} mode={mode} sta={sta}',packets,wp)
 print('ORIGINAL_SHA256',hashlib.sha256(orig).hexdigest());print('CANDIDATE_SHA256',hashlib.sha256(candidate).hexdigest())
-for label,actual,want in fails[:30]:print(f'FAIL {label}: 期望{want} → 真结果{actual}')
-print(f'RUN_RULE_LOCAL {total}项，失败{len(fails)}；选择器/扣除窗/编码选择/偏好/入口转向；非完整动作/速度判据')
+for label,actual,want in fails[:30]:print(f'FAIL {label}: expected {want} → got {actual}')
+print(f'RUN_RULE_LOCAL {total} cases, {len(fails)} failed; selector / deduction window / encoding choice / preference / entry redirect; not a full action / speed criterion')
 sys.exit(bool(fails))

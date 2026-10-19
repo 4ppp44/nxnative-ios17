@@ -1,36 +1,30 @@
-# 银河战士 生存恐惧（Switch，基础版 v0 + 更新 2.1.0 = v327680）的游戏档案。移植起步中：内存值沿用马力欧的，待实测
 # Game profile of Metroid Dread (Switch, base game v0 + update 2.1.0 = v327680). Bring-up has just started: the memory values are Mario's until measured
-# 格式见 dm/games/README.md | Format: see dm/games/README.md
-# MercurySteam 自己的引擎，SDK 11.4.3，NVN；脚本是 Lua 5.1 字节码（.lc），音频是 NintendoWare Atk。着色器全在 system/shd/*.bshdat（MSHD 容器，shader_split.py 读）
+# Format: see dm/games/README.md
 # MercurySteam's own engine, SDK 11.4.3, NVN; scripts are Lua 5.1 bytecode (.lc), audio is NintendoWare Atk. Every shader is in system/shd/*.bshdat (MSHD containers, read by shader_split.py)
 
-# ---- 身份 | Identity ----
+# ---- Identity ----
 title_id	010093801237C000
 program_id	010093801237C000
 
 # ---- App ----
-# 游戏名：只给档案列表与 Mac 窗口标题当标签；iOS App 名取基础版 NSP 里的游戏名，包名按基础版标题号（build_ipa.sh / NSP 脚本）
 # Game name: only a label for profile listings and the Mac window title; the iOS app name is the game name in the base NSP, and the bundle ID comes from the base game title ID (build_ipa.sh / NSP script)
 name	Metroid Dread
 ipa	MetroidDread.ipa
 app_category	public.app-category.action-games
 
-# ---- 版本 | Versions ----
-# 只解了合并 2.1.0 的那份；基础版单独的构建号用到时再补 | only the merged 2.1.0 copy is extracted; the base game's own build IDs are added when needed
+# ---- Versions ----
+# only the merged 2.1.0 copy is extracted; the base game's own build IDs are added when needed
 build	v327680	2.1.0	main=646761f643afebb379edd5e6a5151af2	subsdk0=507f19d1240d09d00992248e8a0fd77e	sdk=2d369d9999e3e10e665106f840ffff9b
 package	v327680
 shader_versions	v327680
 
-# ---- 文件 | Files ----
-# 装载顺序同 Horizon：main、subsdk*、sdk（subsdk0 = NintendoSDK_movie 11.4.3） | load order as on Horizon: main, subsdk*, sdk (subsdk0 = NintendoSDK_movie 11.4.3)
+# ---- Files ----
+# load order as on Horizon: main, subsdk*, sdk (subsdk0 = NintendoSDK_movie 11.4.3)
 modules	main subsdk0 sdk
 romfs_marker	system/shd
 zip_store	.bctex:.webm:.bfstm:.metallib
 
-# ---- 内存 | Memory ----
-# NPDM 不声明系统资源（META +0x14 = 0），没有虚拟地址内存：走 SetHeapSize。main 的 bss 约 1.8 GB（0x70cd2fa0，引擎的静态堆），在模块映像里，不占下面的块。
-# 实测（DM_SVC=1）：别名区只在 SDK 初始化时映射一页（4 KB）；线程栈经 MapMemory 放进栈区；堆按「池 − 已用」要 0x58800000（1.38 GB，已用含 1.8 GB bss）。
-# 所以块只要 2.25 GB = 前置 256 MB + 别名区 256 MB + 栈区 256 MB + 堆区 1.5 GB；连 main 的 1.9 GB 映像共约 4.3 GB，低于真机跑通过的 5 GB（D2R）。应用池仍报 Switch 的 3285 MB
+# ---- Memory ----
 # The NPDM declares no system resource (META +0x14 = 0), so there is no virtual address memory: the game uses SetHeapSize. main's bss is about 1.8 GB (0x70cd2fa0, the engine's static heap); it is part of the module image, not of the block below.
 # Measured (DM_SVC=1): the alias region gets one page (4 KB) mapped during SDK initialization; thread stacks go into the stack region through MapMemory; the heap request is pool − used = 0x58800000 (1.38 GB, with the 1.8 GB bss counted as used).
 # So the block needs only 2.25 GB = 256 MB in front + 256 MB alias region + 256 MB stack region + 1.5 GB heap region; with main's 1.9 GB image that is about 4.3 GB, below the 5 GB proven on a phone (D2R). The application pool is still the Switch's 3285 MB
@@ -39,15 +33,12 @@ mem_alias	0x10000000
 mem_stack	0x10000000
 app_pool	0xCD500000
 
-# ---- 线程 | Threads ----
-# 同核抢占近似（hle_thread.c）：影片播放器的主线程（优先级 44，核 0）把「摘等待项」请求投给分发线程、给工作线程留下消息后（两者优先级 30，只许核 0）不等就释放对象、在原处建新对象；
-# 真机上它们立即抢占主线程、先处理完。宿主不近似就在片头 / 标题影片切换时约半数运行崩（SignalEvent 进空 MultiWait、main+0x225338 读已释放对象），近似后 12 次连跑无崩
+# ---- Threads ----
 # Same-core preemption approximation (hle_thread.c): the movie player's main thread (priority 44, core 0) posts "unlink the holders" to the dispatcher thread and leaves messages for the worker thread (both priority 30, core 0 only), then frees the object and builds a new one in place without waiting;
 # on hardware they preempt the main thread at once and finish first. Without the approximation about half of the runs crashed at the intro / title movie changes (SignalEvent on a null MultiWait, main+0x225338 reading a freed object); with it 12 runs in a row were clean
 core_preempt	on
 
-# ---- NVN 驱动常量段（dmsh_build.py 出包、nvn_mtl.m 运行时现填） | NVN driver constant segments (dmsh_build.py at packaging, nvn_mtl.m filled at run time) ----
-# 着色器文件里留着 SASS 反汇编：全部 TEX / TEXS 的句柄立即数是 0x8–0x22 字（步长 2），即 c2 字节 0x20 + 8 r，与马力欧同（翻译器内置的就是这组）。其余沿用马力欧的，待翻译后按全库实测
+# ---- NVN driver constant segments (dmsh_build.py at packaging, nvn_mtl.m filled at run time) ----
 # The shader files keep the SASS disassembly: the handle immediates of every TEX / TEXS are words 0x8–0x22 (step 2), i.e. c2 bytes 0x20 + 8 r, as in Mario (the set built into the translator). The rest stay as Mario's until measured over all translated shaders
 nvn_tex_base	0x20
 nvn_tex_slots	32
@@ -56,6 +47,6 @@ nvn_img_base	0x120
 nvn_img_slots	8
 nvn_ssbo_bases	vs=0x110 ps=0x510 cs=0x310
 
-# ---- 着色器拆分（shader_split.py；MSHD 容器） | Shader split (shader_split.py; MSHD containers) ----
+# ---- Shader split (shader_split.py; MSHD containers) ----
 shader_groups	/system/shd/=shd
-shader_note	银河战士 生存恐惧着色器
+shader_note	Metroid Dread shaders

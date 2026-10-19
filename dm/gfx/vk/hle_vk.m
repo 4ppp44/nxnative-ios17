@@ -30,7 +30,7 @@ int mtl_fps_target(void);   // nvn_mtl.m: 60, or 30 when the frame rate is halve
 void dm_vi_layer_crop(int c[4]);   // hle_vi.c: x, y, w, h the game last cropped its layer to (all 0 = none)
 
 #define VLOG(...) LOG("[vk] " __VA_ARGS__)
-#define RED1(...) do { static int once_; if (!once_) { once_ = 1; LOG("[vk] 【红】" __VA_ARGS__); } } while (0)
+#define RED1(...) do { static int once_; if (!once_) { once_ = 1; LOG("[vk] [RED] " __VA_ARGS__); } } while (0)
 static int g_log;
 #define OLOG(...) do { if (g_log) VLOG(__VA_ARGS__); } while (0)
 
@@ -131,10 +131,10 @@ static id<MTLLibrary> g_lib;
 static int sh_cmp(const void *a, const void *b) { return memcmp(((const shinfo *)a)->key, ((const shinfo *)b)->key, 16); }
 static void sh_load(void) {
     const char *d = getenv("DM_MSL_DIR"); char p[1024];
-    if (!d) { LOG("[vk] 【红】没设 DM_MSL_DIR：Vulkan 着色器库找不到"); return; }
+    if (!d) { LOG("[vk] [RED] DM_MSL_DIR not set: the Vulkan shader library cannot be found"); return; }
     snprintf(p, sizeof p, "%s/vk/vk_shaders.tsv", d);
     FILE *f = fopen(p, "r");
-    if (!f) { LOG("[vk] 【红】打不开 %s（先跑 dm/gfx/tools/vk_shaders.py）", p); return; }
+    if (!f) { LOG("[vk] [RED] cannot open %s (run dm/gfx/tools/vk_shaders.py first)", p); return; }
     char line[4096]; int cap = 0;
     while (fgets(line, sizeof line, f)) {
         if (line[0] == '#' || line[0] == '\n') continue;
@@ -145,7 +145,7 @@ static void sh_load(void) {
         memcpy(s->key, key, 16); s->frag = !strcmp(stage, "frag");
         for (char *t = res ? strtok(res, " ") : NULL; t; t = strtok(NULL, " ")) {
             char k; unsigned st, b, sl, n = 1;
-            if (sscanf(t, "%c:%u.%u=%u*%u", &k, &st, &b, &sl, &n) < 4 || !n || sl + n > 31 || s->nres == 24) { LOG("[vk] 【红】着色器表 %s 的资源项看不懂：%s", s->key, t); continue; }
+            if (sscanf(t, "%c:%u.%u=%u*%u", &k, &st, &b, &sl, &n) < 4 || !n || sl + n > 31 || s->nres == 24) { LOG("[vk] [RED] cannot parse a resource entry of shader table %s: %s", s->key, t); continue; }
             s->res[s->nres++] = (shres){k, (uint8_t)st, (uint8_t)sl, (uint8_t)n, (uint16_t)b};
         }
     }
@@ -154,7 +154,7 @@ static void sh_load(void) {
     snprintf(p, sizeof p, "%s/vk/vk_shaders.metallib", d);
     NSError *err = nil;
     g_lib = [g_dev newLibraryWithURL:[NSURL fileURLWithPath:@(p)] error:&err];
-    if (!g_lib) LOG("[vk] 【红】着色器库载入失败 %s：%s", p, err.localizedDescription.UTF8String);
+    if (!g_lib) LOG("[vk] [RED] shader library failed to load %s: %s", p, err.localizedDescription.UTF8String);
 }
 static const shinfo *sh_find(const char *key) { shinfo k; memcpy(k.key, key, 16); return g_nsh ? bsearch(&k, g_sh, g_nsh, sizeof *g_sh, sh_cmp) : NULL; }
 
@@ -165,7 +165,7 @@ static void dev_init_once(void) {
         g_ev = [g_dev newSharedEvent];
         g_dss_off = [g_dev newDepthStencilStateWithDescriptor:[MTLDepthStencilDescriptor new]];
         sh_load();
-        VLOG("Metal 设备 %s；着色器表 %d 个", g_dev.name.UTF8String, g_nsh);
+        VLOG("Metal device %s; %d shader table entries", g_dev.name.UTF8String, g_nsh);
     }
 }
 static void dev_init(void) { static pthread_once_t once = PTHREAD_ONCE_INIT; pthread_once(&once, dev_init_once); }
@@ -218,7 +218,7 @@ struct VkCommandPool_T { struct VkCommandBuffer_T *cbs; };
 struct VkCommandBuffer_T { void *loader; VkCommandPool pool; struct VkCommandBuffer_T *prev, *next; uint8_t *buf; size_t n, cap; };
 struct VkSwapchainKHR_T { uint32_t n, next; VkImage img[4]; uint64_t ticket[4]; };
 
-static void *zalloc(size_t n) { void *p = calloc(1, n); if (!p) die("[vk] 内存不足 %zu", n); return p; }
+static void *zalloc(size_t n) { void *p = calloc(1, n); if (!p) die("[vk] out of memory %zu", n); return p; }
 
 // ---------- Instance and physical device ----------
 static VkResult fill_names(const char *const *names, uint32_t n, uint32_t *count, VkExtensionProperties *p) {
@@ -233,7 +233,7 @@ static const char *const g_dev_ext[] = {"VK_KHR_swapchain", "VK_KHR_descriptor_u
 static void join_names(char *out, size_t n, const char *const *names, uint32_t count) {
     out[0] = 0; size_t o = 0;
     for (uint32_t i = 0; i < count && o + 2 < n; i++) o += snprintf(out + o, n - o, "%s%s", i ? " " : "", names[i]);
-    if (!count) strlcpy(out, "无", n);
+    if (!count) strlcpy(out, "none", n);
 }
 
 VK(vkEnumerateInstanceVersion, VkResult, uint32_t *v) { *v = VK_API_VERSION_1_1; return VK_SUCCESS; }
@@ -246,7 +246,7 @@ VK(vkCreateInstance, VkResult, const VkInstanceCreateInfo *ci, const VkAllocatio
     (void)a; g_log = getenv("DM_VK_LOG") != NULL;
     const VkApplicationInfo *ai = ci->pApplicationInfo; char ext[512];
     join_names(ext, sizeof ext, ci->ppEnabledExtensionNames, ci->enabledExtensionCount);
-    VLOG("CreateInstance：应用 %s，引擎 %s，API %u.%u；扩展 %s；层 %u 个", ai && ai->pApplicationName ? ai->pApplicationName : "-",
+    VLOG("CreateInstance: application %s, engine %s, API %u.%u; extensions %s; %u layers", ai && ai->pApplicationName ? ai->pApplicationName : "-",
          ai && ai->pEngineName ? ai->pEngineName : "-", ai ? VK_API_VERSION_MAJOR(ai->apiVersion) : 0, ai ? VK_API_VERSION_MINOR(ai->apiVersion) : 0, ext, ci->enabledLayerCount);
     *out = &g_inst; return VK_SUCCESS;
 }
@@ -351,7 +351,7 @@ VK(vkGetImageSparseMemoryRequirements, void, VkDevice d, VkImage i, uint32_t *n,
 static VkExtent2D surf_ext(void) { return dm_opmode() ? (VkExtent2D){1920, 1080} : (VkExtent2D){1280, 720}; }
 VK(vkCreateViSurfaceNN, VkResult, VkInstance i, const VkViSurfaceCreateInfoNN *ci, const VkAllocationCallbacks *a, VkSurfaceKHR *out) {
     (void)i; (void)a; VkSurfaceKHR s = zalloc(sizeof *s); s->win = ci->window; *out = s;
-    VLOG("CreateViSurfaceNN 窗口 %p", ci->window); return VK_SUCCESS;
+    VLOG("CreateViSurfaceNN window %p", ci->window); return VK_SUCCESS;
 }
 VK(vkDestroySurfaceKHR, void, VkInstance i, VkSurfaceKHR s, const VkAllocationCallbacks *a) { (void)i; (void)a; free(s); }
 VK(vkGetPhysicalDeviceSurfaceSupportKHR, VkResult, VkPhysicalDevice pd, uint32_t fam, VkSurfaceKHR s, VkBool32 *ok) { (void)pd; (void)s; *ok = fam == 0; return VK_SUCCESS; }
@@ -388,7 +388,7 @@ VKB(vkCreateDevice, VkResult, VkPhysicalDevice pd, const VkDeviceCreateInfo *ci,
     (void)pd; (void)a; dev_init();
     char ext[512]; join_names(ext, sizeof ext, ci->ppEnabledExtensionNames, ci->enabledExtensionCount);
     uint32_t nq = 0; for (uint32_t i = 0; i < ci->queueCreateInfoCount; i++) nq += ci->pQueueCreateInfos[i].queueCount;
-    VLOG("CreateDevice：队列 %u 个；扩展 %s", nq, ext);
+    VLOG("CreateDevice: %u queues; extensions %s", nq, ext);
     *out = &g_device; return VK_SUCCESS;
 }
 VK(vkDestroyDevice, void, VkDevice d, const VkAllocationCallbacks *a) { (void)d; (void)a; }
@@ -401,7 +401,7 @@ static id<MTLBuffer> mem_buf(VkDeviceMemory m) {
     pthread_mutex_lock(&g_mem_mu);
     if (!m->buf) {
         m->buf = [g_dev newBufferWithLength:m->size ? m->size : 16 options:MTLResourceStorageModeShared];
-        if (!m->buf) LOG("[vk] 【红】建不出 %llu 字节的 MTLBuffer", (unsigned long long)m->size);
+        if (!m->buf) LOG("[vk] [RED] cannot create an MTLBuffer of %llu bytes", (unsigned long long)m->size);
         else { atomic_store_explicit(&m->raw, (__bridge void *)m->buf, memory_order_release); g_mem_bytes += m->size; }
     }
     pthread_mutex_unlock(&g_mem_mu);
@@ -411,7 +411,7 @@ VK(vkAllocateMemory, VkResult, VkDevice d, const VkMemoryAllocateInfo *ai, const
     (void)d; (void)a;
     if (ai->memoryTypeIndex >= 3) return VK_ERROR_OUT_OF_DEVICE_MEMORY;
     VkDeviceMemory m = zalloc(sizeof *m); m->size = ai->allocationSize; m->type = ai->memoryTypeIndex;
-    OLOG("AllocateMemory %p %llu 字节 类型 %u", (void *)m, (unsigned long long)m->size, m->type);
+    OLOG("AllocateMemory %p %llu bytes type %u", (void *)m, (unsigned long long)m->size, m->type);
     *out = m; return VK_SUCCESS;
 }
 VKB(vkFreeMemory, void, VkDevice d, VkDeviceMemory m, const VkAllocationCallbacks *a) {
@@ -421,7 +421,7 @@ VKB(vkFreeMemory, void, VkDevice d, VkDeviceMemory m, const VkAllocationCallback
 }
 VKB(vkMapMemory, VkResult, VkDevice d, VkDeviceMemory m, VkDeviceSize off, VkDeviceSize size, VkMemoryMapFlags fl, void **pp) {
     (void)d; (void)size; (void)fl;
-    if (m->type == 0) RED1("映射了不可见内存（类型 0）");
+    if (m->type == 0) RED1("mapped invisible memory (type 0)");
     id<MTLBuffer> b = mem_buf(m); if (!b) return VK_ERROR_MEMORY_MAP_FAILED;
     *pp = (uint8_t *)b.contents + off; return VK_SUCCESS;
 }
@@ -448,7 +448,7 @@ VKB(vkBindBufferMemory2, VkResult, VkDevice d, uint32_t n, const VkBindBufferMem
 }
 VK(vkCreateBufferView, VkResult, VkDevice d, const VkBufferViewCreateInfo *ci, const VkAllocationCallbacks *a, VkBufferView *out) {
     (void)d; (void)a; VkBufferView v = zalloc(sizeof *v); v->buf = ci->buffer; v->f = fmt_of(ci->format); v->off = ci->offset; v->range = ci->range;
-    if (!v->f || v->f->pf == MTLPixelFormatInvalid) RED1("缓冲视图格式 %d 未映射", ci->format);
+    if (!v->f || v->f->pf == MTLPixelFormatInvalid) RED1("buffer view format %d not mapped", ci->format);
     *out = v; return VK_SUCCESS;
 }
 VK(vkDestroyBufferView, void, VkDevice d, VkBufferView v, const VkAllocationCallbacks *a) { (void)d; (void)a; if (v) { v->tex = nil; free(v); } }
@@ -457,7 +457,7 @@ static id<MTLTexture> bview_tex(VkBufferView v) {   // texel buffer as a linear 
     VkDeviceSize range = v->range == VK_WHOLE_SIZE ? v->buf->size - v->off : v->range, n = range / v->f->bytes;
     MTLTextureDescriptor *td = [MTLTextureDescriptor textureBufferDescriptorWithPixelFormat:v->f->pf width:n resourceOptions:MTLResourceStorageModeShared usage:MTLTextureUsageShaderRead];
     v->tex = [mem_buf(v->buf->mem) newTextureWithDescriptor:td offset:v->buf->off + v->off bytesPerRow:n * v->f->bytes];
-    if (!v->tex) RED1("纹素缓冲建不出（偏移 %llu）", (unsigned long long)(v->buf->off + v->off));
+    if (!v->tex) RED1("cannot create the texel buffer (offset %llu)", (unsigned long long)(v->buf->off + v->off));
     return v->tex;
 }
 
@@ -473,7 +473,7 @@ static VkDeviceSize img_bytes(const fmt_t *f, uint32_t w, uint32_t h, uint32_t d
 VKB(vkCreateImage, VkResult, VkDevice d, const VkImageCreateInfo *ci, const VkAllocationCallbacks *a, VkImage *out) {
     (void)d; (void)a; dev_init();
     const fmt_t *f = fmt_of(ci->format);
-    if (!f || f->pf == MTLPixelFormatInvalid) { LOG("[vk] 【红】图像格式 %d 未映射", ci->format); return VK_ERROR_FORMAT_NOT_SUPPORTED; }
+    if (!f || f->pf == MTLPixelFormatInvalid) { LOG("[vk] [RED] image format %d not mapped", ci->format); return VK_ERROR_FORMAT_NOT_SUPPORTED; }
     // Linear 2D images with one level and layer alias their memory, as on the Switch: the texture is made over the bound buffer at vkBindImageMemory, with rows at
     // Metal's linear-texture alignment (which vkGetImageSubresourceLayout reports). Super Mario Galaxy fills staging images from the CPU this way and samples a 4x4 one
     if (ci->tiling == VK_IMAGE_TILING_LINEAR && ci->imageType == VK_IMAGE_TYPE_2D && ci->mipLevels <= 1 && ci->arrayLayers <= 1 && ci->samples <= 1 && f->kind != K_BLOCK && !fmt_has_depth(f) && !fmt_has_stencil(f)) {
@@ -481,10 +481,10 @@ VKB(vkCreateImage, VkResult, VkDevice d, const VkImageCreateInfo *ci, const VkAl
         VkImage im = zalloc(sizeof *im);
         im->f = f; im->fmt = ci->format; im->type = ci->imageType; im->w = ci->extent.width; im->h = umax(1, ci->extent.height); im->d = im->mips = im->layers = im->samples = 1;
         im->usage = ci->usage; im->pitch = (uint32_t)(((NSUInteger)im->w * f->bytes + al - 1) / al * al); im->size = (VkDeviceSize)im->pitch * im->h;
-        OLOG("CreateImage %p %ux%u 格式 %d 线性（行距 %u）用途 %#x", (void *)im, im->w, im->h, ci->format, im->pitch, ci->usage);
+        OLOG("CreateImage %p %ux%u format %d linear (pitch %u) usage %#x", (void *)im, im->w, im->h, ci->format, im->pitch, ci->usage);
         *out = im; return VK_SUCCESS;
     }
-    if (ci->tiling == VK_IMAGE_TILING_LINEAR) RED1("线性图像 %ux%u 格式 %d 级 %u 层 %u：内容不随所绑内存走", ci->extent.width, ci->extent.height, ci->format, ci->mipLevels, ci->arrayLayers);
+    if (ci->tiling == VK_IMAGE_TILING_LINEAR) RED1("linear image %ux%u format %d levels %u layers %u: content does not follow the bound memory", ci->extent.width, ci->extent.height, ci->format, ci->mipLevels, ci->arrayLayers);
     @autoreleasepool {
         uint32_t layers = umax(1, ci->arrayLayers), samples = umax(1, ci->samples);
         int cube = (ci->flags & VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT) && layers % 6 == 0;
@@ -503,11 +503,11 @@ VKB(vkCreateImage, VkResult, VkDevice d, const VkImageCreateInfo *ci, const VkAl
         if (ci->flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) u |= MTLTextureUsagePixelFormatView;
         td.usage = u; td.storageMode = MTLStorageModePrivate;
         id<MTLTexture> t = [g_dev newTextureWithDescriptor:td];
-        if (!t) { LOG("[vk] 【红】建不出图像 %ux%ux%u 格式 %d 级 %u 层 %u", ci->extent.width, ci->extent.height, ci->extent.depth, ci->format, ci->mipLevels, layers); return VK_ERROR_OUT_OF_DEVICE_MEMORY; }
+        if (!t) { LOG("[vk] [RED] cannot create image %ux%ux%u format %d levels %u layers %u", ci->extent.width, ci->extent.height, ci->extent.depth, ci->format, ci->mipLevels, layers); return VK_ERROR_OUT_OF_DEVICE_MEMORY; }
         VkImage im = zalloc(sizeof *im);
         im->tex = t; im->f = f; im->fmt = ci->format; im->type = ci->imageType; im->w = (uint32_t)td.width; im->h = (uint32_t)td.height; im->d = (uint32_t)td.depth;
         im->mips = (uint32_t)td.mipmapLevelCount; im->layers = layers; im->samples = samples; im->size = img_bytes(f, im->w, im->h, im->d, im->mips, layers, samples);
-        OLOG("CreateImage %p %ux%ux%u 格式 %d 级 %u 层 %u 用途 %#x", (void *)im, im->w, im->h, im->d, ci->format, im->mips, layers, ci->usage);
+        OLOG("CreateImage %p %ux%ux%u format %d levels %u layers %u usage %#x", (void *)im, im->w, im->h, im->d, ci->format, im->mips, layers, ci->usage);
         *out = im;
     }
     return VK_SUCCESS;
@@ -536,7 +536,7 @@ VKB(vkBindImageMemory, VkResult, VkDevice d, VkImage im, VkDeviceMemory m, VkDev
         td.usage = MTLTextureUsageShaderRead | (im->usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT ? MTLTextureUsageRenderTarget : 0) | (im->usage & VK_IMAGE_USAGE_STORAGE_BIT ? MTLTextureUsageShaderWrite : 0);
         im->tex = [b newTextureWithDescriptor:td offset:off bytesPerRow:im->pitch];
     }
-    if (!im->tex) { LOG("[vk] 【红】线性图像 %ux%u 格式 %d 建不出（偏移 %llu 行距 %u）", im->w, im->h, im->fmt, (unsigned long long)off, im->pitch); return VK_ERROR_OUT_OF_DEVICE_MEMORY; }
+    if (!im->tex) { LOG("[vk] [RED] cannot create linear image %ux%u format %d (offset %llu pitch %u)", im->w, im->h, im->fmt, (unsigned long long)off, im->pitch); return VK_ERROR_OUT_OF_DEVICE_MEMORY; }
     return VK_SUCCESS;
 }
 VKB(vkBindImageMemory2, VkResult, VkDevice d, uint32_t n, const VkBindImageMemoryInfo *bi) {
@@ -582,7 +582,7 @@ VKB(vkCreateImageView, VkResult, VkDevice d, const VkImageViewCreateInfo *ci, co
     else @autoreleasepool {
         v->tex = [im->tex newTextureViewWithPixelFormat:pf textureType:tt levels:NSMakeRange(r->baseMipLevel, lv)
                                                   slices:NSMakeRange(tt == MTLTextureType3D ? 0 : r->baseArrayLayer, tt == MTLTextureType3D ? 1 : ly) swizzle:sw];
-        if (!v->tex) LOG("[vk] 【红】图像视图建不出：格式 %d → %lu 类型 %lu 级 %u+%u 层 %u+%u", im->fmt, (unsigned long)pf, (unsigned long)tt, r->baseMipLevel, lv, r->baseArrayLayer, ly);
+        if (!v->tex) LOG("[vk] [RED] cannot create image view: format %d → %lu type %lu levels %u+%u layers %u+%u", im->fmt, (unsigned long)pf, (unsigned long)tt, r->baseMipLevel, lv, r->baseArrayLayer, ly);
     }
     *out = v; return VK_SUCCESS;
 }
@@ -611,9 +611,9 @@ VKB(vkCreateSampler, VkResult, VkDevice d, const VkSamplerCreateInfo *ci, const 
                          ci->borderColor >= VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK ? MTLSamplerBorderColorOpaqueBlack : MTLSamplerBorderColorTransparentBlack;
         sd.lodMinClamp = ci->minLod; sd.lodMaxClamp = ci->maxLod;
         sd.normalizedCoordinates = !ci->unnormalizedCoordinates;
-        if (ci->mipLodBias != 0) RED1("采样器 LOD 偏移 %.2f 没实现", ci->mipLodBias);
+        if (ci->mipLodBias != 0) RED1("sampler LOD bias %.2f not implemented", ci->mipLodBias);
         VkSampler s = zalloc(sizeof *s); s->s = [g_dev newSamplerStateWithDescriptor:sd];
-        if (!s->s) LOG("[vk] 【红】采样器建不出");
+        if (!s->s) LOG("[vk] [RED] cannot create the sampler");
         *out = s;
     }
     return VK_SUCCESS;
@@ -624,7 +624,7 @@ VKB(vkDestroySampler, void, VkDevice d, VkSampler s, const VkAllocationCallbacks
 static int is_dyn(VkDescriptorType t) { return t == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC || t == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC; }
 VK(vkCreateDescriptorSetLayout, VkResult, VkDevice d, const VkDescriptorSetLayoutCreateInfo *ci, const VkAllocationCallbacks *a, VkDescriptorSetLayout *out) {
     (void)d; (void)a;
-    if (ci->bindingCount > MAXB) { LOG("[vk] 【红】描述符集布局 %u 个绑定，超过 %d", ci->bindingCount, MAXB); return VK_ERROR_OUT_OF_HOST_MEMORY; }
+    if (ci->bindingCount > MAXB) { LOG("[vk] [RED] descriptor set layout with %u bindings, over %d", ci->bindingCount, MAXB); return VK_ERROR_OUT_OF_HOST_MEMORY; }
     VkDescriptorSetLayout L = zalloc(sizeof *L); memset(L->idx, -1, sizeof L->idx);
     const VkDescriptorSetLayoutBinding *src[MAXB];
     for (uint32_t i = 0; i < ci->bindingCount; i++) {   // sorted by binding number: the order dynamic offsets are consumed in
@@ -634,7 +634,7 @@ VK(vkCreateDescriptorSetLayout, VkResult, VkDevice d, const VkDescriptorSetLayou
     int nimm = 0;
     for (uint32_t i = 0; i < ci->bindingCount; i++) {
         const VkDescriptorSetLayoutBinding *b = src[i]; lbind *o = &L->b[L->n];
-        if (b->binding >= 128) { LOG("[vk] 【红】绑定号 %u 超过 127", b->binding); continue; }
+        if (b->binding >= 128) { LOG("[vk] [RED] binding number %u over 127", b->binding); continue; }
         o->binding = b->binding; o->count = b->descriptorCount; o->type = b->descriptorType; o->base = L->total; o->dyn = -1;
         if (is_dyn(b->descriptorType)) { o->dyn = (int)L->ndyn; L->ndyn += b->descriptorCount; }
         o->imm = b->pImmutableSamplers && (b->descriptorType == VK_DESCRIPTOR_TYPE_SAMPLER || b->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
@@ -649,7 +649,7 @@ VK(vkCreateDescriptorSetLayout, VkResult, VkDevice d, const VkDescriptorSetLayou
             k++;
         }
     }
-    if (L->ndyn > 16) LOG("[vk] 【红】一个集里 %u 个动态偏移，超过 16", L->ndyn);
+    if (L->ndyn > 16) LOG("[vk] [RED] %u dynamic offsets in one set, over 16", L->ndyn);
     *out = L; return VK_SUCCESS;
 }
 VK(vkDestroyDescriptorSetLayout, void, VkDevice d, VkDescriptorSetLayout L, const VkAllocationCallbacks *a) { (void)d; (void)L; (void)a; }   // kept: sets allocated from it still read it
@@ -682,8 +682,8 @@ VK(vkFreeDescriptorSets, VkResult, VkDevice d, VkDescriptorPool p, uint32_t n, c
 // Element `elem` of `binding`; an index past the binding's count continues into the next bindings (Vulkan's consecutive-binding updates)
 static desc_t *set_elem(VkDescriptorSet s, uint32_t binding, uint32_t elem, const lbind **lb) {
     const VkDescriptorSetLayout L = s->L; int i = binding < 128 ? L->idx[binding] : -1;
-    if (i < 0) { RED1("写描述符：绑定 %u 不在布局里", binding); return NULL; }
-    while (elem >= L->b[i].count) { elem -= L->b[i].count; if (++i >= (int)L->n) { RED1("写描述符越过布局末尾（绑定 %u）", binding); return NULL; } }
+    if (i < 0) { RED1("write descriptor: binding %u not in the layout", binding); return NULL; }
+    while (elem >= L->b[i].count) { elem -= L->b[i].count; if (++i >= (int)L->n) { RED1("write descriptor past the end of the layout (binding %u)", binding); return NULL; } }
     *lb = &L->b[i]; return &s->d[L->b[i].base + elem];
 }
 static void desc_write(desc_t *e, const lbind *lb, VkDescriptorType t, const VkDescriptorImageInfo *ii, const VkDescriptorBufferInfo *bi, const VkBufferView *bv) {
@@ -694,7 +694,7 @@ static void desc_write(desc_t *e, const lbind *lb, VkDescriptorType t, const VkD
         case VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER: case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER: e->bv = *bv; break;
         case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER: case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER: case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC: case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
             e->buf = bi->buffer; e->off = bi->offset; e->range = bi->range; break;
-        default: RED1("描述符类型 %d 没实现", t); break;
+        default: RED1("descriptor type %d not implemented", t); break;
     }
 }
 VK(vkUpdateDescriptorSets, void, VkDevice d, uint32_t nw, const VkWriteDescriptorSet *w, uint32_t nc, const VkCopyDescriptorSet *c) {
@@ -713,7 +713,7 @@ VK(vkUpdateDescriptorSets, void, VkDevice d, uint32_t nw, const VkWriteDescripto
 }
 VK(vkCreateDescriptorUpdateTemplate, VkResult, VkDevice d, const VkDescriptorUpdateTemplateCreateInfo *ci, const VkAllocationCallbacks *a, VkDescriptorUpdateTemplate *out) {
     (void)d; (void)a;
-    if (ci->templateType != VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET) RED1("描述符更新模板类型 %d 没实现", ci->templateType);
+    if (ci->templateType != VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET) RED1("descriptor update template type %d not implemented", ci->templateType);
     VkDescriptorUpdateTemplate t = zalloc(sizeof *t + ci->descriptorUpdateEntryCount * sizeof(VkDescriptorUpdateTemplateEntry));
     t->n = ci->descriptorUpdateEntryCount; memcpy(t->e, ci->pDescriptorUpdateEntries, t->n * sizeof *t->e);
     *out = t; return VK_SUCCESS;
@@ -732,10 +732,10 @@ VK(vkUpdateDescriptorSetWithTemplate, void, VkDevice d, VkDescriptorSet s, VkDes
 }
 VK(vkCreatePipelineLayout, VkResult, VkDevice d, const VkPipelineLayoutCreateInfo *ci, const VkAllocationCallbacks *a, VkPipelineLayout *out) {
     (void)d; (void)a; VkPipelineLayout l = zalloc(sizeof *l);
-    if (ci->setLayoutCount > 8) LOG("[vk] 【红】管线布局 %u 个集，超过 8", ci->setLayoutCount);
+    if (ci->setLayoutCount > 8) LOG("[vk] [RED] pipeline layout with %u sets, over 8", ci->setLayoutCount);
     l->nset = umin(ci->setLayoutCount, 8); memcpy(l->set, ci->pSetLayouts, l->nset * sizeof *l->set);
     for (uint32_t i = 0; i < ci->pushConstantRangeCount; i++) l->pc_size = umax(l->pc_size, ci->pPushConstantRanges[i].offset + ci->pPushConstantRanges[i].size);
-    if (l->pc_size > 256) { LOG("[vk] 【红】push constant 范围 %u 字节，超过 256", l->pc_size); l->pc_size = 256; }
+    if (l->pc_size > 256) { LOG("[vk] [RED] push constant range %u bytes, over 256", l->pc_size); l->pc_size = 256; }
     *out = l; return VK_SUCCESS;
 }
 VK(vkDestroyPipelineLayout, void, VkDevice d, VkPipelineLayout l, const VkAllocationCallbacks *a) { (void)d; (void)l; (void)a; }   // kept: pipelines point at it
@@ -743,8 +743,8 @@ VK(vkDestroyPipelineLayout, void, VkDevice d, VkPipelineLayout l, const VkAlloca
 // ---------- Render passes, framebuffers ----------
 VK(vkCreateRenderPass, VkResult, VkDevice d, const VkRenderPassCreateInfo *ci, const VkAllocationCallbacks *a, VkRenderPass *out) {
     (void)d; (void)a;
-    if (ci->attachmentCount > 16 || !ci->subpassCount) { LOG("[vk] 【红】渲染通道：附件 %u 个、子通道 %u 个", ci->attachmentCount, ci->subpassCount); return VK_ERROR_OUT_OF_HOST_MEMORY; }
-    if (ci->subpassCount > 1) RED1("渲染通道有 %u 个子通道：只用第一个", ci->subpassCount);
+    if (ci->attachmentCount > 16 || !ci->subpassCount) { LOG("[vk] [RED] render pass: %u attachments, %u subpasses", ci->attachmentCount, ci->subpassCount); return VK_ERROR_OUT_OF_HOST_MEMORY; }
+    if (ci->subpassCount > 1) RED1("render pass has %u subpasses: only the first is used", ci->subpassCount);
     VkRenderPass rp = zalloc(sizeof *rp); rp->natt = ci->attachmentCount;
     for (uint32_t i = 0; i < rp->natt; i++) {
         const VkAttachmentDescription *at = &ci->pAttachments[i];
@@ -757,13 +757,13 @@ VK(vkCreateRenderPass, VkResult, VkDevice d, const VkRenderPassCreateInfo *ci, c
         rp->col[i] = c == VK_ATTACHMENT_UNUSED ? -1 : (int)c; rp->res[i] = r == VK_ATTACHMENT_UNUSED ? -1 : (int)r;
     }
     rp->depth = sp->pDepthStencilAttachment && sp->pDepthStencilAttachment->attachment != VK_ATTACHMENT_UNUSED ? (int)sp->pDepthStencilAttachment->attachment : -1;
-    if (sp->inputAttachmentCount) RED1("输入附件没实现");
+    if (sp->inputAttachmentCount) RED1("input attachments not implemented");
     *out = rp; return VK_SUCCESS;
 }
 VK(vkDestroyRenderPass, void, VkDevice d, VkRenderPass rp, const VkAllocationCallbacks *a) { (void)d; (void)rp; (void)a; }   // kept: recorded commands may still name it
 VK(vkCreateFramebuffer, VkResult, VkDevice d, const VkFramebufferCreateInfo *ci, const VkAllocationCallbacks *a, VkFramebuffer *out) {
     (void)d; (void)a;
-    if (ci->attachmentCount > 16) { LOG("[vk] 【红】帧缓冲 %u 个附件", ci->attachmentCount); return VK_ERROR_OUT_OF_HOST_MEMORY; }
+    if (ci->attachmentCount > 16) { LOG("[vk] [RED] framebuffer with %u attachments", ci->attachmentCount); return VK_ERROR_OUT_OF_HOST_MEMORY; }
     VkFramebuffer fb = zalloc(sizeof *fb); fb->n = ci->attachmentCount; fb->w = ci->width; fb->h = ci->height; fb->layers = ci->layers;
     memcpy(fb->v, ci->pAttachments, fb->n * sizeof *fb->v);
     *out = fb; return VK_SUCCESS;
@@ -775,12 +775,12 @@ VK(vkDestroyFramebuffer, void, VkDevice d, VkFramebuffer fb, const VkAllocationC
 // (over 3,000 at boot, from the pipeline database), so no game file holds them; vk_shaders.py translates a capture folder like a RomFS
 static void sh_capture(const char *key, const void *code, size_t n) {
     static const char *dir; static int init;
-    if (!init) { init = 1; dir = getenv("DM_VK_CAPTURE"); if (dir) VLOG("着色器抓取 → %s", dir); }
+    if (!init) { init = 1; dir = getenv("DM_VK_CAPTURE"); if (dir) VLOG("shader capture → %s", dir); }
     if (!dir) return;
     char p[1024]; snprintf(p, sizeof p, "%s/%s.spv", dir, key);
     if (access(p, F_OK) == 0) return;
     char t[1100]; snprintf(t, sizeof t, "%s.%d.tmp", p, getpid());
-    FILE *f = fopen(t, "wb"); if (!f) { RED1("着色器抓取写不进 %s", dir); return; }
+    FILE *f = fopen(t, "wb"); if (!f) { RED1("shader capture cannot write to %s", dir); return; }
     int ok = fwrite(code, 1, n, f) == n; ok &= fclose(f) == 0;
     if (ok) rename(t, p); else unlink(t);   // whole files only: a capture run may be killed at any time
 }
@@ -792,7 +792,7 @@ VKB(vkCreateShaderModule, VkResult, VkDevice d, const VkShaderModuleCreateInfo *
     sh_capture(m->key, ci->pCode, ci->codeSize);
     m->si = sh_find(m->key);
     @autoreleasepool { if (m->si && g_lib) m->fn = [g_lib newFunctionWithName:[NSString stringWithFormat:@"vk_%s", m->key]]; }
-    if (!m->fn) LOG("[vk] 【红】着色器 %s（%zu 字节 SPIR-V）不在库里", m->key, ci->codeSize);
+    if (!m->fn) LOG("[vk] [RED] shader %s (%zu bytes of SPIR-V) is not in the library", m->key, ci->codeSize);
     else OLOG("CreateShaderModule %s", m->key);
     *out = m; return VK_SUCCESS;
 }
@@ -839,7 +839,7 @@ static VkPipeline pipe_make(const VkGraphicsPipelineCreateInfo *ci) {
         char keys[64] = ""; int dual = dual_source(ci->pColorBlendState);
         for (uint32_t s = 0; s < ci->stageCount; s++) {
             const VkPipelineShaderStageCreateInfo *st = &ci->pStages[s]; VkShaderModule m = st->module;
-            if (st->pSpecializationInfo && st->pSpecializationInfo->mapEntryCount) RED1("特化常量没实现");
+            if (st->pSpecializationInfo && st->pSpecializationInfo->mapEntryCount) RED1("specialization constants not implemented");
             if (st->stage == VK_SHADER_STAGE_VERTEX_BIT) { pd.vertexFunction = m->fn; p->vs = m->si; }
             else if (st->stage == VK_SHADER_STAGE_FRAGMENT_BIT) {
                 if (dual && m->fn) {   // pipelines may be built on several threads
@@ -849,22 +849,22 @@ static VkPipeline pipe_make(const VkGraphicsPipelineCreateInfo *ci) {
                 }
                 pd.fragmentFunction = dual && m->fn_d ? m->fn_d : m->fn; p->fs = m->si;
             }
-            else RED1("着色器阶段 %#x 没实现", st->stage);
+            else RED1("shader stage %#x not implemented", st->stage);
             strlcat(keys, s ? " " : "", sizeof keys); strlcat(keys, m->key, sizeof keys);
         }
-        if (!pd.vertexFunction) { LOG("[vk] 【红】管线没有可用的顶点着色器（%s）", keys); return p; }
+        if (!pd.vertexFunction) { LOG("[vk] [RED] pipeline has no usable vertex shader (%s)", keys); return p; }
         const VkPipelineVertexInputStateCreateInfo *vi = ci->pVertexInputState;
         MTLVertexDescriptor *vd = [MTLVertexDescriptor vertexDescriptor];
         uint32_t used = 0;   // bindings some mapped attribute reads: Metal's validation rejects a buffer layout no attribute uses
         for (uint32_t i = 0; vi && i < vi->vertexAttributeDescriptionCount; i++) {
             const VkVertexInputAttributeDescription *at = &vi->pVertexAttributeDescriptions[i]; const fmt_t *f = fmt_of(at->format);
-            if (!f || f->vf == MTLVertexFormatInvalid || at->location >= 31 || at->binding >= 14) { LOG("[vk] 【红】顶点属性 %u 格式 %d 未映射", at->location, at->format); continue; }
+            if (!f || f->vf == MTLVertexFormatInvalid || at->location >= 31 || at->binding >= 14) { LOG("[vk] [RED] vertex attribute %u format %d not mapped", at->location, at->format); continue; }
             vd.attributes[at->location].format = f->vf; vd.attributes[at->location].offset = at->offset; vd.attributes[at->location].bufferIndex = 30 - at->binding;
             used |= 1u << at->binding;
         }
         for (uint32_t i = 0; vi && i < vi->vertexBindingDescriptionCount; i++) {
             const VkVertexInputBindingDescription *b = &vi->pVertexBindingDescriptions[i];
-            if (b->binding >= 14) { LOG("[vk] 【红】顶点绑定 %u 超过 13", b->binding); continue; }
+            if (b->binding >= 14) { LOG("[vk] [RED] vertex binding %u over 13", b->binding); continue; }
             if (!(used >> b->binding & 1)) continue;
             MTLVertexBufferLayoutDescriptor *l = vd.layouts[30 - b->binding];
             if (b->stride) { l.stride = b->stride; l.stepFunction = b->inputRate == VK_VERTEX_INPUT_RATE_INSTANCE ? MTLVertexStepFunctionPerInstance : MTLVertexStepFunctionPerVertex; l.stepRate = 1; }
@@ -878,11 +878,11 @@ static VkPipeline pipe_make(const VkGraphicsPipelineCreateInfo *ci) {
             case VK_PRIMITIVE_TOPOLOGY_LINE_STRIP: p->prim = MTLPrimitiveTypeLineStrip; pd.inputPrimitiveTopology = MTLPrimitiveTopologyClassLine; break;
             case VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP: p->prim = MTLPrimitiveTypeTriangleStrip; break;
             case VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST: p->prim = MTLPrimitiveTypeTriangle; break;
-            default: RED1("图元拓扑 %d 没实现", ci->pInputAssemblyState->topology); p->prim = MTLPrimitiveTypeTriangle; break;
+            default: RED1("primitive topology %d not implemented", ci->pInputAssemblyState->topology); p->prim = MTLPrimitiveTypeTriangle; break;
         }
         const VkPipelineRasterizationStateCreateInfo *rs = ci->pRasterizationState;
         p->cull = !rs || rs->cullMode == VK_CULL_MODE_NONE ? MTLCullModeNone : rs->cullMode == VK_CULL_MODE_FRONT_BIT ? MTLCullModeFront : rs->cullMode == VK_CULL_MODE_BACK_BIT ? MTLCullModeBack : MTLCullModeNone;
-        if (rs && rs->cullMode == VK_CULL_MODE_FRONT_AND_BACK) RED1("剔除正反两面没实现");
+        if (rs && rs->cullMode == VK_CULL_MODE_FRONT_AND_BACK) RED1("culling both front and back faces not implemented");
         p->wind = rs && rs->frontFace == VK_FRONT_FACE_CLOCKWISE ? MTLWindingClockwise : MTLWindingCounterClockwise;   // framebuffer winding is the same once the shaders flip y
         p->fill = rs && rs->polygonMode == VK_POLYGON_MODE_LINE ? MTLTriangleFillModeLines : MTLTriangleFillModeFill;
         p->clip = rs && rs->depthClampEnable ? MTLDepthClipModeClamp : MTLDepthClipModeClip;
@@ -891,9 +891,9 @@ static VkPipeline pipe_make(const VkGraphicsPipelineCreateInfo *ci) {
         const VkPipelineMultisampleStateCreateInfo *ms = ci->pMultisampleState;
         pd.rasterSampleCount = ms ? umax(1, ms->rasterizationSamples) : 1; pd.alphaToCoverageEnabled = ms && ms->alphaToCoverageEnable;
         VkRenderPass rp = ci->renderPass;
-        if (ci->subpass) RED1("管线用了子通道 %u", ci->subpass);
+        if (ci->subpass) RED1("pipeline uses subpass %u", ci->subpass);
         const VkPipelineColorBlendStateCreateInfo *cb = ci->pColorBlendState;
-        if (cb && cb->logicOpEnable) RED1("逻辑运算混合没实现");
+        if (cb && cb->logicOpEnable) RED1("logic op blending not implemented");
         for (uint32_t i = 0; i < rp->ncol; i++) {
             int at = rp->col[i]; if (at < 0) continue;
             const fmt_t *f = fmt_of(rp->att[at].fmt); MTLRenderPipelineColorAttachmentDescriptor *ca = pd.colorAttachments[i];
@@ -917,20 +917,20 @@ static VkPipeline pipe_make(const VkGraphicsPipelineCreateInfo *ci) {
             MTLDepthStencilDescriptor *dd = [MTLDepthStencilDescriptor new];
             if (fmt_has_depth(df) && ds->depthTestEnable) { dd.depthCompareFunction = (MTLCompareFunction)ds->depthCompareOp; dd.depthWriteEnabled = ds->depthWriteEnable != 0; }
             if (fmt_has_stencil(df) && ds->stencilTestEnable) { dd.frontFaceStencil = stencil_d(&ds->front); dd.backFaceStencil = stencil_d(&ds->back); p->sref_f = ds->front.reference; p->sref_b = ds->back.reference; }
-            if (ds->depthBoundsTestEnable) RED1("深度范围测试没实现");
+            if (ds->depthBoundsTestEnable) RED1("depth bounds test not implemented");
             p->dss = [g_dev newDepthStencilStateWithDescriptor:dd];
         } else p->dss = g_dss_off;
         const VkPipelineDynamicStateCreateInfo *dy = ci->pDynamicState;
         for (uint32_t i = 0; dy && i < dy->dynamicStateCount; i++) {
             VkDynamicState s = dy->pDynamicStates[i];
-            if (s == VK_DYNAMIC_STATE_VIEWPORT) p->dyn_vp = 1; else if (s == VK_DYNAMIC_STATE_SCISSOR) p->dyn_sc = 1; else RED1("动态状态 %d 没实现（导入里没有对应的设置函数）", s);
+            if (s == VK_DYNAMIC_STATE_VIEWPORT) p->dyn_vp = 1; else if (s == VK_DYNAMIC_STATE_SCISSOR) p->dyn_sc = 1; else RED1("dynamic state %d not implemented (the imports have no matching set function)", s);
         }
         const VkPipelineViewportStateCreateInfo *vs = ci->pViewportState;
         if (!p->dyn_vp && vs && vs->pViewports && vs->viewportCount) { p->vp = vp_of(&vs->pViewports[0]); p->has_vp = 1; }
         if (!p->dyn_sc && vs && vs->pScissors && vs->scissorCount) { p->sc = vs->pScissors[0]; p->has_sc = 1; }
         NSError *err = nil;
         p->pso = [g_dev newRenderPipelineStateWithDescriptor:pd error:&err];
-        if (!p->pso) { static int n; if (n++ < 20) LOG("[vk] 【红】管线建不出（%s）：%s", keys, err.localizedDescription.UTF8String); }
+        if (!p->pso) { static int n; if (n++ < 20) LOG("[vk] [RED] cannot build the pipeline (%s): %s", keys, err.localizedDescription.UTF8String); }
         else g_n_pso++;
     }
     return p;
@@ -964,7 +964,7 @@ static void *rec(VkCommandBuffer cb, uint32_t op, size_t sz) {
     size_t need = (sizeof(chdr) + sz + 7) & ~(size_t)7;
     if (cb->n + need > cb->cap) {
         size_t c = cb->cap ? cb->cap * 2 : 4096; while (c < cb->n + need) c *= 2;
-        cb->buf = realloc(cb->buf, c); if (!cb->buf) die("[vk] 命令缓冲内存不足 %zu", c); cb->cap = c;
+        cb->buf = realloc(cb->buf, c); if (!cb->buf) die("[vk] out of command buffer memory %zu", c); cb->cap = c;
     }
     chdr *h = (chdr *)(cb->buf + cb->n); h->op = op; h->size = (uint32_t)need; cb->n += need;
     return h + 1;
@@ -982,7 +982,7 @@ VK(vkDestroyCommandPool, void, VkDevice d, VkCommandPool p, const VkAllocationCa
 VK(vkResetCommandPool, VkResult, VkDevice d, VkCommandPool p, VkCommandPoolResetFlags f) { (void)d; (void)f; for (VkCommandBuffer c = p->cbs; c; c = c->next) c->n = 0; return VK_SUCCESS; }
 VK(vkAllocateCommandBuffers, VkResult, VkDevice d, const VkCommandBufferAllocateInfo *ai, VkCommandBuffer *out) {
     (void)d;
-    if (ai->level != VK_COMMAND_BUFFER_LEVEL_PRIMARY) RED1("二级命令缓冲没实现");
+    if (ai->level != VK_COMMAND_BUFFER_LEVEL_PRIMARY) RED1("secondary command buffers not implemented");
     for (uint32_t i = 0; i < ai->commandBufferCount; i++) {
         VkCommandBuffer cb = zalloc(sizeof *cb); cb->pool = ai->commandPool;
         cb->next = cb->pool->cbs; if (cb->next) cb->next->prev = cb; cb->pool->cbs = cb;
@@ -1002,7 +1002,7 @@ VK(vkCmdBeginRenderPass, void, VkCommandBuffer cb, const VkRenderPassBeginInfo *
 }
 VK(vkCmdEndRenderPass, void, VkCommandBuffer cb) { rec(cb, C_ERP, 0); }
 VK(vkCmdBindPipeline, void, VkCommandBuffer cb, VkPipelineBindPoint bp, VkPipeline p) {
-    if (bp != VK_PIPELINE_BIND_POINT_GRAPHICS) { RED1("计算管线没实现"); return; }
+    if (bp != VK_PIPELINE_BIND_POINT_GRAPHICS) { RED1("compute pipelines not implemented"); return; }
     ((c_pipe *)rec(cb, C_PIPE, sizeof(c_pipe)))->p = p;
 }
 VK(vkCmdBindDescriptorSets, void, VkCommandBuffer cb, VkPipelineBindPoint bp, VkPipelineLayout l, uint32_t first, uint32_t n, const VkDescriptorSet *s, uint32_t ndyn, const uint32_t *dyn) {
@@ -1031,7 +1031,7 @@ VK(vkCmdDraw, void, VkCommandBuffer cb, uint32_t count, uint32_t inst, uint32_t 
 }
 VK(vkCmdPushConstants, void, VkCommandBuffer cb, VkPipelineLayout l, VkShaderStageFlags st, uint32_t off, uint32_t size, const void *v) {
     (void)l; (void)st;
-    if (off >= 256 || size > 256 - off) { RED1("push constant 越界：偏移 %u 长 %u", off, size); return; }
+    if (off >= 256 || size > 256 - off) { RED1("push constant out of range: offset %u length %u", off, size); return; }
     c_push *c = rec(cb, C_PUSH, sizeof *c + size); c->off = off; c->size = size; memcpy(c->data, v, size);
 }
 VK(vkCmdCopyImage, void, VkCommandBuffer cb, VkImage src, VkImageLayout sl, VkImage dst, VkImageLayout dl, uint32_t n, const VkImageCopy *r) {
@@ -1083,7 +1083,7 @@ static void end_rp(rs_t *s, int final) {   // final: the pass's own store action
 // A copy inside a render pass, which NVIDIA's driver runs: Super Mario Galaxy copies from its EFB in the middle of a pass (vkCmdCopyImage). The encoder ends here and
 // the pass resumes at its next draw (resume_rp); without that, the rest of the pass's draws were dropped
 static id<MTLBlitCommandEncoder> blit(rs_t *s, uint32_t op) {
-    if (s->re) { static int n; if (n++ < 3) OLOG("渲染通道里的拷贝（命令 %u）：通道切开，下次绘制接着画", op); end_rp(s, 0); s->cut = 1; }
+    if (s->re) { static int n; if (n++ < 3) OLOG("copy inside a render pass (command %u): the pass is split and the next draw continues it", op); end_rp(s, 0); s->cut = 1; }
     if (!s->be) s->be = [s->cb blitCommandEncoder];
     return s->be;
 }
@@ -1143,14 +1143,14 @@ static void bind_res(rs_t *s, const shinfo *si, int frag) {
         const shres *r = &si->res[i];
         if (r->kind == 'p') continue;   // bind_push
         VkDescriptorSet ds = r->set < 8 ? s->set[r->set].s : NULL;
-        if (!ds) { RED1("着色器 %s 用的集 %u 没绑", si->key, r->set); continue; }
+        if (!ds) { RED1("shader %s: set %u is not bound", si->key, r->set); continue; }
         const VkDescriptorSetLayout L = ds->L; int bi = r->binding < 128 ? L->idx[r->binding] : -1;
         if (bi < 0 || !L->b[bi].count) {
             char have[256] = ""; size_t o = 0;
             for (uint32_t k = 0; k < L->n && o + 8 < sizeof have; k++) o += snprintf(have + o, sizeof have - o, " %u", L->b[k].binding);
             const VkPipelineLayout pl = s->pipe->layout; const VkDescriptorSetLayout PL = pl && r->set < pl->nset ? pl->set[r->set] : NULL;
-            RED1("着色器 %s 的 %u.%u 不在所绑集的布局 %p 里（它有：%s）；管线布局的集 %u 是 %p%s", si->key, r->set, r->binding, (void *)L, have, r->set, (void *)PL,
-                 PL && r->binding < 128 && PL->idx[r->binding] >= 0 ? "，那里有这个绑定：集没随管线换绑" : "");
+            RED1("shader %s: %u.%u is not in the bound set's layout %p (it has:%s); the pipeline layout's set %u is %p%s", si->key, r->set, r->binding, (void *)L, have, r->set, (void *)PL,
+                 PL && r->binding < 128 && PL->idx[r->binding] >= 0 ? ", which has this binding: the set was not rebound with the pipeline" : "");
             continue;
         }
         const lbind *lb = &L->b[bi]; uint32_t n = umin(r->count, lb->count);
@@ -1158,7 +1158,7 @@ static void bind_res(rs_t *s, const shinfo *si, int frag) {
             const desc_t *e = &ds->d[lb->base + k]; NSUInteger slot = r->slot + k;
             switch (r->kind) {
                 case 'u': case 'b': {
-                    VkBuffer b = e->buf; if (!b || !b->mem) { RED1("着色器 %s 的缓冲 %u.%u[%u] 是空的", si->key, r->set, r->binding, k); break; }
+                    VkBuffer b = e->buf; if (!b || !b->mem) { RED1("shader %s: buffer %u.%u[%u] is empty", si->key, r->set, r->binding, k); break; }
                     VkDeviceSize off = b->off + e->off; if (lb->dyn >= 0 && lb->dyn + k < 16) off += s->set[r->set].dyn[lb->dyn + k];
                     id<MTLBuffer> mb = mem_buf(b->mem);
                     if (frag) [re setFragmentBuffer:mb offset:off atIndex:slot]; else [re setVertexBuffer:mb offset:off atIndex:slot];
@@ -1166,13 +1166,13 @@ static void bind_res(rs_t *s, const shinfo *si, int frag) {
                 }
                 case 't': case 'c': {
                     id<MTLTexture> t = e->view ? e->view->tex : e->bv ? bview_tex(e->bv) : nil;
-                    if (!t) { RED1("着色器 %s 的贴图 %u.%u[%u] 是空的", si->key, r->set, r->binding, k); break; }
+                    if (!t) { RED1("shader %s: texture %u.%u[%u] is empty", si->key, r->set, r->binding, k); break; }
                     if (frag) [re setFragmentTexture:t atIndex:slot]; else [re setVertexTexture:t atIndex:slot];
                     if (r->kind == 'c' && e->smp) { if (frag) [re setFragmentSamplerState:e->smp->s atIndex:slot]; else [re setVertexSamplerState:e->smp->s atIndex:slot]; }
                     break;
                 }
                 case 's':
-                    if (!e->smp) { RED1("着色器 %s 的采样器 %u.%u[%u] 是空的", si->key, r->set, r->binding, k); break; }
+                    if (!e->smp) { RED1("shader %s: sampler %u.%u[%u] is empty", si->key, r->set, r->binding, k); break; }
                     if (frag) [re setFragmentSamplerState:e->smp->s atIndex:slot]; else [re setVertexSamplerState:e->smp->s atIndex:slot];
                     break;
             }
@@ -1190,7 +1190,7 @@ static void bind_push(rs_t *s, const shinfo *si, int frag) {   // the push-const
 static int pre_draw(rs_t *s) {
     if (!s->re && s->cut) resume_rp(s);
     VkPipeline p = s->pipe; id<MTLRenderCommandEncoder> re = s->re;
-    if (!re) { RED1("渲染通道外的绘制"); return 0; }
+    if (!re) { RED1("draw outside a render pass"); return 0; }
     if (!p || !p->pso) return 0;
     if (s->applied != p) {
         [re setRenderPipelineState:p->pso]; [re setDepthStencilState:p->dss ? p->dss : g_dss_off];
@@ -1219,7 +1219,7 @@ static int pre_draw(rs_t *s) {
     bind_res(s, p->vs, 0); bind_res(s, p->fs, 1); bind_push(s, p->vs, 0); bind_push(s, p->fs, 1);
     for (uint32_t i = 0; i < 14; i++)
         if (p->vb_mask >> i & 1) {
-            VkBuffer b = s->vb[i]; if (!b || !b->mem) { RED1("顶点缓冲 %u 没绑", i); return 0; }
+            VkBuffer b = s->vb[i]; if (!b || !b->mem) { RED1("vertex buffer %u not bound", i); return 0; }
             [re setVertexBuffer:mem_buf(b->mem) offset:b->off + s->vbo[i] atIndex:30 - i];
         }
     return 1;
@@ -1246,14 +1246,14 @@ static void replay(rs_t *s, VkCommandBuffer cb) {
             case C_DRAWI: {
                 const c_drawi *x = c;
                 if (!x->count || !x->inst || !pre_draw(s)) break;
-                if (!s->ib || !s->ib->mem) { RED1("索引缓冲没绑"); break; }
+                if (!s->ib || !s->ib->mem) { RED1("index buffer not bound"); break; }
                 [s->re drawIndexedPrimitives:s->pipe->prim indexCount:x->count indexType:s->it indexBuffer:mem_buf(s->ib->mem)
                            indexBufferOffset:s->ib->off + s->ibo + (VkDeviceSize)x->first * s->isz instanceCount:x->inst baseVertex:x->voff baseInstance:x->first_inst];
                 g_n_draw++;
                 break;
             }
             case C_COPYB: {
-                const c_copyb *x = c; if (!x->src->mem || !x->dst->mem) { RED1("拷贝的缓冲没绑内存"); break; }
+                const c_copyb *x = c; if (!x->src->mem || !x->dst->mem) { RED1("a copied buffer has no bound memory"); break; }
                 id<MTLBlitCommandEncoder> be = blit(s, h->op); id<MTLBuffer> sb = mem_buf(x->src->mem), db = mem_buf(x->dst->mem);
                 for (uint32_t i = 0; i < x->n; i++)
                     [be copyFromBuffer:sb sourceOffset:x->src->off + x->r[i].srcOffset toBuffer:db destinationOffset:x->dst->off + x->r[i].dstOffset size:x->r[i].size];
@@ -1262,7 +1262,7 @@ static void replay(rs_t *s, VkCommandBuffer cb) {
             }
             case C_COPYB2I: {
                 const c_copyb2i *x = c; VkImage im = x->dst; const fmt_t *f = im->f;
-                if (!x->src->mem || !im->tex) { RED1("上传的缓冲没绑内存或图像没建出"); break; }
+                if (!x->src->mem || !im->tex) { RED1("the upload buffer has no bound memory or the image was not created"); break; }
                 id<MTLBlitCommandEncoder> be = blit(s, h->op); id<MTLBuffer> sb = mem_buf(x->src->mem);
                 for (uint32_t i = 0; i < x->n; i++) {
                     const VkBufferImageCopy *r = &x->r[i];
@@ -1289,8 +1289,8 @@ static void replay(rs_t *s, VkCommandBuffer cb) {
             case C_PUSH: { const c_push *x = c; memcpy(s->pc + x->off, x->data, x->size); break; }
             case C_COPYI: {
                 const c_copyi *x = c; VkImage a = x->src, b = x->dst;
-                if (!a->tex || !b->tex) { RED1("拷贝的图像没建出"); break; }
-                if (a->tex.pixelFormat != b->tex.pixelFormat) { RED1("图像拷贝的格式不同（%d → %d）没实现", a->fmt, b->fmt); break; }
+                if (!a->tex || !b->tex) { RED1("a copied image was not created"); break; }
+                if (a->tex.pixelFormat != b->tex.pixelFormat) { RED1("image copy between different formats (%d → %d) not implemented", a->fmt, b->fmt); break; }
                 id<MTLBlitCommandEncoder> be = blit(s, h->op);
                 for (uint32_t i = 0; i < x->n; i++) {
                     const VkImageCopy *r = &x->r[i]; int a3 = a->type == VK_IMAGE_TYPE_3D, b3 = b->type == VK_IMAGE_TYPE_3D;
@@ -1307,7 +1307,7 @@ static void replay(rs_t *s, VkCommandBuffer cb) {
             }
             case C_COPYI2B: {   // read-back into a buffer (shared storage: the CPU sees it once the submit's fence has signalled)
                 const c_copyi2b *x = c; VkImage im = x->src; const fmt_t *f = im->f;
-                if (!x->dst->mem || !im->tex) { RED1("读回的缓冲没绑内存或图像没建出"); break; }
+                if (!x->dst->mem || !im->tex) { RED1("the readback buffer has no bound memory or the image was not created"); break; }
                 id<MTLBlitCommandEncoder> be = blit(s, h->op); id<MTLBuffer> db = mem_buf(x->dst->mem);
                 for (uint32_t i = 0; i < x->n; i++) {
                     const VkBufferImageCopy *r = &x->r[i]; int is3d = im->type == VK_IMAGE_TYPE_3D;
@@ -1332,18 +1332,18 @@ static void replay(rs_t *s, VkCommandBuffer cb) {
             case C_QBEGIN: {
                 const c_query *x = c; subq_t *q = s->sq;
                 if (!s->re && s->cut) resume_rp(s);
-                if (x->q->type != VK_QUERY_TYPE_OCCLUSION) { RED1("查询类型 %d 没实现", x->q->type); break; }
-                if (!s->re || !q->vis || q->nvis == q->cap || x->first >= x->q->n) { RED1("遮挡查询不在渲染通道里或超出缓冲"); break; }
+                if (x->q->type != VK_QUERY_TYPE_OCCLUSION) { RED1("query type %d not implemented", x->q->type); break; }
+                if (!s->re || !q->vis || q->nvis == q->cap || x->first >= x->q->n) { RED1("occlusion query outside a render pass or past the buffer"); break; }
                 q->occ[q->nvis] = (occ_t){x->q, x->first, q->nvis};
                 [s->re setVisibilityResultMode:MTLVisibilityResultModeCounting offset:q->nvis * 8]; q->nvis++;
                 x->q->ticket[x->first] = q->v;
                 break;
             }
             case C_QEND: if (s->re) [s->re setVisibilityResultMode:MTLVisibilityResultModeDisabled offset:0]; break;
-            default: LOG("[vk] 【红】命令缓冲里有未知命令 %u", h->op); return;
+            default: LOG("[vk] [RED] unknown command %u in the command buffer", h->op); return;
         }
     }
-    if (s->re || s->cut) { RED1("命令缓冲结束时渲染通道没结束"); end_rp(s, 1); s->cut = 0; }
+    if (s->re || s->cut) { RED1("render pass not ended when the command buffer ended"); end_rp(s, 1); s->cut = 0; }
     end_blit(s);
 }
 
@@ -1376,7 +1376,7 @@ VKB(vkQueueSubmit, VkResult, VkQueue q, uint32_t n, const VkSubmitInfo *si, VkFe
         [cb encodeSignalEvent:g_ev value:v];
         if (f) atomic_store(&f->val, v);
         [cb addCompletedHandler:^(id<MTLCommandBuffer> c) {
-            if (c.error) { static int k; if (k++ < 20) LOG("[vk] 【红】命令缓冲出错（第 %llu 次提交）：%s", (unsigned long long)v, c.error.localizedDescription.UTF8String); }
+            if (c.error) { static int k; if (k++ < 20) LOG("[vk] [RED] command buffer error (submission %llu): %s", (unsigned long long)v, c.error.localizedDescription.UTF8String); }
             g_done_ns[v % DONE_RING] = now_ns();
             if (sq->nvis) { const uint64_t *r = sq->vis.contents; for (uint32_t k = 0; k < sq->nvis; k++) sq->occ[k].q->val[sq->occ[k].idx] = r[sq->occ[k].slot]; }
             sq->vis = nil; free(sq->occ); free(sq);
@@ -1390,7 +1390,7 @@ VKB(vkQueueSubmit, VkResult, VkQueue q, uint32_t n, const VkSubmitInfo *si, VkFe
     return VK_SUCCESS;
 }
 VK(vkQueueBindSparse, VkResult, VkQueue q, uint32_t n, const VkBindSparseInfo *bi, VkFence f) {
-    (void)q; (void)bi; if (n) RED1("稀疏绑定没实现");
+    (void)q; (void)bi; if (n) RED1("sparse binding not implemented");
     if (f) atomic_store(&f->val, 0);
     return n ? VK_ERROR_FEATURE_NOT_PRESENT : VK_SUCCESS;
 }
@@ -1416,7 +1416,7 @@ VKB(vkWaitForFences, VkResult, VkDevice d, uint32_t n, const VkFence *fs, VkBool
         if (all ? k == n : k > 0) { pthread_mutex_unlock(&g_done_mu); return VK_SUCCESS; }
         uint64_t el = now_ns() - t0;
         if (el >= timeout) { pthread_mutex_unlock(&g_done_mu); return VK_TIMEOUT; }
-        if (!warned && el > 5000000000ull) { warned = 1; LOG("[vk] 【红】等围栏超过 5 秒（%u 个，已完成 %u；没提交过的围栏永远不会完成）", n, k); }
+        if (!warned && el > 5000000000ull) { warned = 1; LOG("[vk] [RED] fence wait over 5 s (%u fences, %u done; a fence never submitted never completes)", n, k); }
         uint64_t left = timeout - el, step = left < 100000000ull ? left : 100000000ull;
         struct timespec ts = {(time_t)(step / 1000000000ull), (long)(step % 1000000000ull)};
         pthread_cond_timedwait_relative_np(&g_done_cv, &g_done_mu, &ts);
@@ -1424,11 +1424,11 @@ VKB(vkWaitForFences, VkResult, VkDevice d, uint32_t n, const VkFence *fs, VkBool
 }
 VK(vkCreateQueryPool, VkResult, VkDevice d, const VkQueryPoolCreateInfo *ci, const VkAllocationCallbacks *a, VkQueryPool *out) {
     (void)d; (void)a;
-    if (ci->queryType != VK_QUERY_TYPE_TIMESTAMP && ci->queryType != VK_QUERY_TYPE_OCCLUSION) LOG("[vk] 【红】查询池类型 %d 没实现", ci->queryType);
+    if (ci->queryType != VK_QUERY_TYPE_TIMESTAMP && ci->queryType != VK_QUERY_TYPE_OCCLUSION) LOG("[vk] [RED] query pool type %d not implemented", ci->queryType);
     VkQueryPool q = zalloc(sizeof *q); q->type = ci->queryType; q->n = ci->queryCount;
     q->val = zalloc(umax(1, q->n) * sizeof *q->val); q->ticket = zalloc(umax(1, q->n) * sizeof *q->ticket);
     for (uint32_t i = 0; i < q->n; i++) q->ticket[i] = FENCE_NONE;
-    VLOG("查询池 %p：类型 %d，%u 个", (void *)q, q->type, q->n);
+    VLOG("query pool %p: type %d, %u queries", (void *)q, q->type, q->n);
     *out = q; return VK_SUCCESS;
 }
 VK(vkDestroyQueryPool, void, VkDevice d, VkQueryPool q, const VkAllocationCallbacks *a) { (void)d; (void)a; if (q) { free(q->val); free(q->ticket); free(q); } }
@@ -1457,7 +1457,7 @@ VK(vkDestroySemaphore, void, VkDevice d, VkSemaphore s, const VkAllocationCallba
 VKB(vkCreateSwapchainKHR, VkResult, VkDevice d, const VkSwapchainCreateInfoKHR *ci, const VkAllocationCallbacks *a, VkSwapchainKHR *out) {
     (void)d; (void)a; dev_init();
     const fmt_t *f = fmt_of(ci->imageFormat);
-    if (!f || f->pf == MTLPixelFormatInvalid) { LOG("[vk] 【红】交换链格式 %d 未映射", ci->imageFormat); return VK_ERROR_FORMAT_NOT_SUPPORTED; }
+    if (!f || f->pf == MTLPixelFormatInvalid) { LOG("[vk] [RED] swap chain format %d not mapped", ci->imageFormat); return VK_ERROR_FORMAT_NOT_SUPPORTED; }
     VkSwapchainKHR sc = zalloc(sizeof *sc); sc->n = umin(umax(ci->minImageCount, 2), 4);
     @autoreleasepool {
         for (uint32_t i = 0; i < sc->n; i++) {
@@ -1471,7 +1471,7 @@ VKB(vkCreateSwapchainKHR, VkResult, VkDevice d, const VkSwapchainCreateInfoKHR *
             sc->img[i] = im;
         }
     }
-    VLOG("交换链 %ux%u 格式 %d，%u 张（要求至少 %u），呈现模式 %d", ci->imageExtent.width, ci->imageExtent.height, ci->imageFormat, sc->n, ci->minImageCount, ci->presentMode);
+    VLOG("swap chain %ux%u format %d, %u images (at least %u requested), present mode %d", ci->imageExtent.width, ci->imageExtent.height, ci->imageFormat, sc->n, ci->minImageCount, ci->presentMode);
     *out = sc; return VK_SUCCESS;
 }
 VKB(vkDestroySwapchainKHR, void, VkDevice d, VkSwapchainKHR sc, const VkAllocationCallbacks *a) {
@@ -1499,7 +1499,7 @@ static void frame_end(void) {
     static uint64_t pd, pp, ps, pc;
     uint64_t f = ++g_frames, dr = g_n_draw, pa = g_n_pass, su = g_n_submit, co = g_n_copy;
     if (f <= 3 || f % 300 == 0)
-        VLOG("帧 %llu：绘制 %llu、通道 %llu、提交 %llu、拷贝 %llu（自上次记录，%llu 帧）；管线累计 %llu，缓冲内存 %.1f MB", (unsigned long long)f, (unsigned long long)(dr - pd),
+        VLOG("frame %llu: draws %llu, passes %llu, submits %llu, copies %llu (since the last record, %llu frames); pipelines so far %llu, buffer memory %.1f MB", (unsigned long long)f, (unsigned long long)(dr - pd),
              (unsigned long long)(pa - pp), (unsigned long long)(su - ps), (unsigned long long)(co - pc), (unsigned long long)(f <= 3 ? 1 : 300), (unsigned long long)g_n_pso, g_mem_bytes / 1048576.0);
     if (f <= 3 || f % 300 == 0) { pd = dr; pp = pa; ps = su; pc = co; }
     dm_guest_frame_tick();
@@ -1533,7 +1533,7 @@ static void *vk_lookup(const char *name) {
     static const char *seen[512]; static int nseen; static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_lock(&mu);
     int known = 0; for (int i = 0; i < nseen; i++) if (!strcmp(seen[i], name)) { known = 1; break; }
-    if (!known && nseen < 512) { seen[nseen++] = strdup(name); VLOG("取址 %s → %s", name, fn ? "宿主实现" : "无（返回空）"); }
+    if (!known && nseen < 512) { seen[nseen++] = strdup(name); VLOG("lookup %s → %s", name, fn ? "host implementation" : "none (returns null)"); }
     pthread_mutex_unlock(&mu);
     return fn;
 }

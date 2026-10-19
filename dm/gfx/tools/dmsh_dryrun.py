@@ -14,7 +14,7 @@ def records(d):
 def first_err(s):
     for ln in s.splitlines():
         if 'error' in ln.lower() or 'exception' in ln.lower(): return re.sub(r'/[^ :]*/', '', ln.strip())[:160]
-    return (s.strip().splitlines() or ['(无输出)'])[-1][:160]
+    return (s.strip().splitlines() or ['(no output)'])[-1][:160]
 
 def one(job):
     key, name, comp, code = job
@@ -41,9 +41,9 @@ for name in sorted(os.listdir(dm_dir)):
 with cf.ThreadPoolExecutor(int(os.environ.get('J', '8'))) as ex: res = list(ex.map(one, jobs))
 json.dump(res, open(os.path.join(out, 'dryrun.json'), 'w'), ensure_ascii=False, indent=0)
 st = collections.Counter(r[2] for r in res)
-print(f'去重后着色器 {len(res)}：成功 {st["ok"]}（{st["ok"] / len(res):.1%}），SPIR-V 失败 {st["spirv"]}，MSL 失败 {st["msl"]}，metal 编译失败 {st["metal"]}')
+print(f'distinct shaders {len(res)}: ok {st["ok"]} ({st["ok"] / len(res):.1%}), SPIR-V failed {st["spirv"]}, MSL failed {st["msl"]}, metal compile failed {st["metal"]}')
 for lvl in ('spirv', 'msl', 'metal'):
     c = collections.Counter(r[3] for r in res if r[2] == lvl)
     for e, n in c.most_common(12): print(f'  [{lvl}] {n:5d}  {e}')
     byf = collections.Counter(r[1] for r in res if r[2] == lvl)
-    if byf: print(f'  [{lvl}] 按文件：', dict(byf.most_common(12)))
+    if byf: print(f'  [{lvl}] by file:', dict(byf.most_common(12)))

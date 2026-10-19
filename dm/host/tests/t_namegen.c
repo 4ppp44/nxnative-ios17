@@ -12,9 +12,9 @@ static int all_taken(const char *n) { (void)n; return 1; }
 static int legal(const char *n) { size_t l = strlen(n); if (l < 2 || l > 15) return 0; for (size_t i = 0; i < l; i++) if (!((n[i] >= 'A' && n[i] <= 'Z') || (n[i] >= 'a' && n[i] <= 'z'))) return 0; return 1; }
 
 int main(void) {
-    for (int i = 0; i < 20; i++) { char nm[32]; int ok = dm_name_gen(nm, sizeof nm, taken); CHECK(ok, "第 %d 次没抽到", i + 1); CHECK(legal(nm), "第 %d 次「%s」不合法", i + 1, nm); CHECK(!taken(nm), "第 %d 次「%s」与已建角色重名", i + 1, nm); strcpy(have[nhave++], nm); }
-    printf("  20 次：%s %s %s … %s\n", have[0], have[1], have[2], have[19]);
-    int bad = 0; for (int i = 0; i < 100000; i++) { char nm[32]; dm_name_gen(nm, sizeof nm, NULL); bad += !legal(nm); } CHECK(!bad, "10 万次里 %d 个不合法", bad);
-    char nm[32]; CHECK(!dm_name_gen(nm, sizeof nm, all_taken), "全部重名时应返回 0");
-    printf("t_namegen: %d 项，%d 失败\n", checks, fails); return fails != 0;
+    for (int i = 0; i < 20; i++) { char nm[32]; int ok = dm_name_gen(nm, sizeof nm, taken); CHECK(ok, "draw %d: no name", i + 1); CHECK(legal(nm), "draw %d: '%s' is not valid", i + 1, nm); CHECK(!taken(nm), "draw %d: '%s' duplicates an existing character", i + 1, nm); strcpy(have[nhave++], nm); }
+    printf("  20 draws: %s %s %s … %s\n", have[0], have[1], have[2], have[19]);
+    int bad = 0; for (int i = 0; i < 100000; i++) { char nm[32]; dm_name_gen(nm, sizeof nm, NULL); bad += !legal(nm); } CHECK(!bad, "%d invalid out of 100000", bad);
+    char nm[32]; CHECK(!dm_name_gen(nm, sizeof nm, all_taken), "should return 0 when every name is taken");
+    printf("t_namegen: %d checks, %d failed\n", checks, fails); return fails != 0;
 }

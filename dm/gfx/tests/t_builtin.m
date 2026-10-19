@@ -22,7 +22,7 @@ int main(void) {
     id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
     NSError *err = nil;
     id<MTLLibrary> lib = [dev newLibraryWithSource:@(k_nvn_builtin_msl) options:nil error:&err];
-    if (!lib) { printf("MSL 编译失败 %s\n", err.localizedDescription.UTF8String); return 1; }
+    if (!lib) { printf("MSL compile failed %s\n", err.localizedDescription.UTF8String); return 1; }
     id<MTLCommandQueue> q = [dev newCommandQueue];
     // Source data: NREC 32-byte records (= 2×NREC 16-byte records), with values that have high bits set and wraparound cases where "the later is smaller than the earlier"
     uint64_t src[4 * NREC];
@@ -46,10 +46,10 @@ int main(void) {
             row[j] = !memcmp(bd.contents, e, sizeof e);
         }
         int ok = row[k] && !row[(k + 1) % 4] && !row[(k + 2) % 4] && !row[(k + 3) % 4];
-        printf("%s（%s）：对自身期望 %s；对其余 3 个期望全等数 %d（期望 0）→ %s\n", k_nvn_builtin_map[k].fn, k_nvn_builtin_map[k].ctl,
-               row[k] ? "全等（含回绕、哨兵 27 个未动）" : "不等", row[(k + 1) % 4] + row[(k + 2) % 4] + row[(k + 3) % 4], ok ? "✓" : "✗");
+        printf("%s (%s): against its own expectation %s; matches against the other 3 expectations %d (expected 0) → %s\n", k_nvn_builtin_map[k].fn, k_nvn_builtin_map[k].ctl,
+               row[k] ? "identical (wrap-around included, 27 sentinels untouched)" : "different", row[(k + 1) % 4] + row[(k + 2) % 4] + row[(k + 3) % 4], ok ? "✓" : "✗");
         fail += !ok;
     }
-    printf("== 4 项，失败 %d ==\n", fail);
+    printf("== 4 checks, %d failed ==\n", fail);
     return fail != 0;
 }

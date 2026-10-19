@@ -3,14 +3,14 @@ DM_ROOT ?= $(HOME)/dm-work
 # without GAME only clean and a bare make (whose default goal only builds libvpx) pass; anything else stops and lists the profiles
 ifeq ($(strip $(GAME)),)
 ifneq ($(filter-out clean,$(MAKECMDGOALS)),)
-$(error 没设 GAME | GAME is not set: make GAME=<基础版标题号 | base game title ID>: $(shell python3 ../games/game.py list | awk -F'\t' '{printf "%s (%s)  ", $$1, $$3}'))
+$(error GAME is not set: make GAME=<base game title ID>: $(shell python3 ../games/game.py list | awk -F'\t' '{printf "%s (%s)  ", $$1, $$3}'))
 endif
 endif
 # A profile outside the repository (DM_GAMES_DIR, e.g. the NSP script's provisional profile) is reached through the symlink gen/<id>/profile: make cannot take paths with spaces
 ifneq ($(strip $(GAME)),)
 GAME_DIR := $(if $(wildcard ../games/$(GAME)/game.tsv),../games/$(GAME),$(shell python3 ../games/game.py link $(GAME) gen/$(GAME)/profile >&2 && echo gen/$(GAME)/profile))
 ifeq ($(GAME_DIR),)
-$(error 没有游戏档案 $(GAME)（dm/games 与 DM_GAMES_DIR 里都没有）| no game profile $(GAME) (neither in dm/games nor in DM_GAMES_DIR))
+$(error no game profile $(GAME) (neither in dm/games nor in DM_GAMES_DIR))
 endif
 endif
 GAME_H = gen/$(GAME)/game_profile.h
@@ -37,7 +37,7 @@ $(VPX_LIB): $(VPX_OBJ)
 # Headers generated from the original game's tables: not checked into the repository, generated at build time from the player's own game files (Update/RomFS of Switch version 3.3.94012); the path is given by the environment variable DM_ROMFS_SRC
 ROMFS?=$(or $(DM_ROMFS_SRC),$(DM_ROOT)/data/switch/3.3.94012/Update/RomFS)
 GENH=dm_vault_tab.h dm_hud_exp.h dm_bright_levels.inc
-NEED_ROMFS=@test -f "$(ROMFS)/data/build_manifest.psv" || { echo "🔴 没找到游戏文件：$(ROMFS)/data/build_manifest.psv。把 Switch 版 3.3.94012 的 Update/RomFS 放到这里，或用环境变量 DM_ROMFS_SRC 指过去（见 dm/README.md「从你的游戏文件生成资源」）"; exit 1; }
+NEED_ROMFS=@test -f "$(ROMFS)/data/build_manifest.psv" || { echo "🔴 game files not found: $(ROMFS)/data/build_manifest.psv. Put the Update/RomFS of Switch version 3.3.94012 there, or point the environment variable DM_ROMFS_SRC at it (see dm/README.md, 'Generating resources from your game files')"; exit 1; }
 dm_vault_tab.h: ../ios/tools/gen_vault_table.py
 	$(NEED_ROMFS)
 	python3 ../ios/tools/gen_vault_table.py "$(ROMFS)" > $@.tmp && mv $@.tmp $@

@@ -6,30 +6,30 @@ static int fails, checks;
 #define CHECK(c, ...) do { checks++; if (!(c)) { fails++; printf("  ✗ "); printf(__VA_ARGS__); printf("\n"); } } while (0)
 int main(void) {
     { dm_modetx t = {0}; uint64_t f = 100;   // One normal switch: touch (0) → controller (1)
-      CHECK(dm_modetx_step(&t, f, -1, 0, 7) == DM_TXA_NONE, "没请求不该动");
-      CHECK(dm_modetx_step(&t, f, 0, 0, 7) == DM_TXA_NONE, "想要的就是当前模式不该动");
-      CHECK(dm_modetx_step(&t, f, 1, 0, 7) == DM_TXA_BEGIN && t.st == DM_TX_REBUILD1, "请求另一模式应开始");
-      for (int i = 1; i <= 10; i++) CHECK(dm_modetx_step(&t, f + i, 1, 0, 7) == DM_TXA_NONE, "提示面板没重开前不该往下走（第 %d 帧）", i);
-      CHECK(dm_modetx_step(&t, f + 11, 1, 0, 8) == DM_TXA_NONE, "刚重开那一帧不算完成");
-      CHECK(dm_modetx_step(&t, f + 13, 1, 0, 9) == DM_TXA_NONE, "又重开一次：重新计稳定");
-      CHECK(dm_modetx_step(&t, f + 16, 1, 0, 9) == DM_TXA_NONE, "稳定 3 帧不够");
-      CHECK(dm_modetx_step(&t, f + 17, 1, 0, 9) == DM_TXA_REPORT_BACK && t.st == DM_TX_REBUILD2, "稳定 4 帧 → 报回原运行模式");
-      CHECK(dm_modetx_step(&t, f + 30, 0, 1, 9) == DM_TXA_NONE, "事务中来的反向请求不打断");
-      CHECK(dm_modetx_step(&t, f + 31, 0, 1, 10) == DM_TXA_NONE, "第二次重建刚开始");
-      CHECK(dm_modetx_step(&t, f + 35, 0, 1, 10) == DM_TXA_DONE && t.st == DM_TX_IDLE && !t.timeouts, "第二次重建稳定 → 完成、无超时");
-      CHECK(dm_modetx_step(&t, f + 36, 0, 1, 10) == DM_TXA_BEGIN, "完成后下一帧处理排着的反向请求"); }
+      CHECK(dm_modetx_step(&t, f, -1, 0, 7) == DM_TXA_NONE, "no request: must not move");
+      CHECK(dm_modetx_step(&t, f, 0, 0, 7) == DM_TXA_NONE, "requested mode is the current one: must not move");
+      CHECK(dm_modetx_step(&t, f, 1, 0, 7) == DM_TXA_BEGIN && t.st == DM_TX_REBUILD1, "request for the other mode should begin");
+      for (int i = 1; i <= 10; i++) CHECK(dm_modetx_step(&t, f + i, 1, 0, 7) == DM_TXA_NONE, "must not proceed before the hint panel reopens (frame %d)", i);
+      CHECK(dm_modetx_step(&t, f + 11, 1, 0, 8) == DM_TXA_NONE, "the frame of the reopen does not count as done");
+      CHECK(dm_modetx_step(&t, f + 13, 1, 0, 9) == DM_TXA_NONE, "reopened again: restart the settle count");
+      CHECK(dm_modetx_step(&t, f + 16, 1, 0, 9) == DM_TXA_NONE, "3 settled frames are not enough");
+      CHECK(dm_modetx_step(&t, f + 17, 1, 0, 9) == DM_TXA_REPORT_BACK && t.st == DM_TX_REBUILD2, "4 settled frames → report back the original run mode");
+      CHECK(dm_modetx_step(&t, f + 30, 0, 1, 9) == DM_TXA_NONE, "a reverse request during the transaction does not interrupt it");
+      CHECK(dm_modetx_step(&t, f + 31, 0, 1, 10) == DM_TXA_NONE, "second rebuild just started");
+      CHECK(dm_modetx_step(&t, f + 35, 0, 1, 10) == DM_TXA_DONE && t.st == DM_TX_IDLE && !t.timeouts, "second rebuild settled → done, no timeout");
+      CHECK(dm_modetx_step(&t, f + 36, 0, 1, 10) == DM_TXA_BEGIN, "the frame after completion handles the queued reverse request"); }
     { dm_modetx t = {0};   // Timeout: the hint panel never reopens
-      CHECK(dm_modetx_step(&t, 0, 1, 0, 0) == DM_TXA_BEGIN, "开始");
-      CHECK(dm_modetx_step(&t, DM_MODETX_TIMEOUT - 1, 1, 0, 0) == DM_TXA_NONE, "差 1 帧不超时");
-      CHECK(dm_modetx_step(&t, DM_MODETX_TIMEOUT, 1, 0, 0) == DM_TXA_REPORT_BACK && t.timeouts == 1, "到点按超时往下走并记数");
-      CHECK(dm_modetx_step(&t, 2 * DM_MODETX_TIMEOUT - 1, 1, 0, 0) == DM_TXA_NONE, "第二段重新计时");
-      CHECK(dm_modetx_step(&t, 2 * DM_MODETX_TIMEOUT, 1, 0, 0) == DM_TXA_DONE && t.timeouts == 2 && t.st == DM_TX_IDLE, "第二段也超时 → 完成、记 2 次"); }
+      CHECK(dm_modetx_step(&t, 0, 1, 0, 0) == DM_TXA_BEGIN, "begin");
+      CHECK(dm_modetx_step(&t, DM_MODETX_TIMEOUT - 1, 1, 0, 0) == DM_TXA_NONE, "1 frame short: no timeout");
+      CHECK(dm_modetx_step(&t, DM_MODETX_TIMEOUT, 1, 0, 0) == DM_TXA_REPORT_BACK && t.timeouts == 1, "at the deadline proceed as a timeout and count it");
+      CHECK(dm_modetx_step(&t, 2 * DM_MODETX_TIMEOUT - 1, 1, 0, 0) == DM_TXA_NONE, "second stage restarts the timer");
+      CHECK(dm_modetx_step(&t, 2 * DM_MODETX_TIMEOUT, 1, 0, 0) == DM_TXA_DONE && t.timeouts == 2 && t.st == DM_TX_IDLE, "second stage times out too → done, 2 counted"); }
     { dm_modegate g = {0}; uint64_t b;   // Input gate: A=0x1 triggers the switch and stays held, B=0x2 is also pressed along the way, and after releasing B it is pressed again
-      b = 0x1; CHECK(dm_modegate_apply(&g, 1, &b) == 1 && b == 0, "冻结：键清零、摇杆也清");
-      b = 0x3; CHECK(dm_modegate_apply(&g, 1, &b) == 1 && b == 0, "冻结中新按的键也不交");
-      b = 0x3; CHECK(dm_modegate_apply(&g, 0, &b) == 0 && b == 0, "放开后还按着的 A、B 不交");
-      b = 0x5; CHECK(dm_modegate_apply(&g, 0, &b) == 0 && b == 0x4, "B 松了、A 还按着：新按的 X=0x4 照常交，A 仍不交");
-      b = 0x0; CHECK(dm_modegate_apply(&g, 0, &b) == 0 && b == 0, "全松开");
-      b = 0x3; CHECK(dm_modegate_apply(&g, 0, &b) == 0 && b == 0x3, "松开过之后再按照常交"); }
-    printf("t_modetx: %d 项，%d 失败\n", checks, fails); return fails != 0;
+      b = 0x1; CHECK(dm_modegate_apply(&g, 1, &b) == 1 && b == 0, "frozen: keys cleared, sticks cleared too");
+      b = 0x3; CHECK(dm_modegate_apply(&g, 1, &b) == 1 && b == 0, "keys newly pressed while frozen are not passed either");
+      b = 0x3; CHECK(dm_modegate_apply(&g, 0, &b) == 0 && b == 0, "A and B still held after the unfreeze are not passed");
+      b = 0x5; CHECK(dm_modegate_apply(&g, 0, &b) == 0 && b == 0x4, "B released, A still held: newly pressed X=0x4 is passed as usual, A still not");
+      b = 0x0; CHECK(dm_modegate_apply(&g, 0, &b) == 0 && b == 0, "all released");
+      b = 0x3; CHECK(dm_modegate_apply(&g, 0, &b) == 0 && b == 0x3, "pressed again after a release: passed as usual"); }
+    printf("t_modetx: %d checks, %d failed\n", checks, fails); return fails != 0;
 }

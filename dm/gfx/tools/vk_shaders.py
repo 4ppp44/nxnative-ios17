@@ -29,7 +29,7 @@ DEC_ARRAY_STRIDE, DEC_BINDING, DEC_SET = 6, 33, 34
 KINDS = {'ubos': 'u', 'ssbos': 'b', 'separate_images': 't', 'images': 't', 'separate_samplers': 's', 'textures': 'c'}
 SLOT_CLASS = {'u': 'buffer', 'b': 'buffer', 't': 'texture', 's': 'sampler', 'c': 'texture', 'p': 'buffer'}
 
-def red(msg): sys.exit('【红】' + msg)
+def red(msg): sys.exit('[RED] ' + msg)
 
 def spirv_files(root):
     for d, _, fs in os.walk(root):
@@ -43,7 +43,7 @@ def decorations(words):
     out, i = {}, 5
     while i < len(words):
         op, n = words[i] & 0xffff, words[i] >> 16
-        if n == 0: red('SPIR-V 指令长度为 0')
+        if n == 0: red('SPIR-V instruction length 0')
         if op == OP_DECORATE and n >= 4:
             v = out.setdefault(words[i + 1], {})
             if words[i + 2] == DEC_BINDING: v['binding'], v['binding_at'] = words[i + 3], i + 3
@@ -57,7 +57,7 @@ def fix_strides(words):
     arrays, have, member, members, at, i = set(), set(), [], {}, None, 5
     while i < len(words):
         op, n = words[i] & 0xffff, words[i] >> 16
-        if n == 0: red('SPIR-V 指令长度为 0')
+        if n == 0: red('SPIR-V instruction length 0')
         if op == OP_DECORATE and n >= 4 and words[i + 2] == DEC_ARRAY_STRIDE: have.add(words[i + 1])
         elif op == OP_MEMBER_DECORATE and n >= 5 and words[i + 3] == DEC_ARRAY_STRIDE: member.append((words[i + 1], words[i + 2], words[i + 4])); at = i + n
         elif op in (OP_TYPE_ARRAY, OP_TYPE_RTARRAY): arrays.add(words[i + 1])
@@ -72,13 +72,13 @@ def fix_strides(words):
 
 def one(path, tmp, root):
     data = open(path, 'rb').read()
-    if len(data) % 4: red(f'{path}：SPIR-V 长度 {len(data)} 不是 4 的倍数')
+    if len(data) % 4: red(f'{path}: SPIR-V length {len(data)} is not a multiple of 4')
     key = hashlib.sha256(data).hexdigest()[:16]   # of the game's words, which the host hashes
     words = fix_strides(list(struct.unpack(f'<{len(data) // 4}I', data)))
     src_spv = os.path.join(tmp, key + '.in.spv'); open(src_spv, 'wb').write(struct.pack(f'<{len(words)}I', *words))
     refl = json.loads(subprocess.run(['spirv-cross', src_spv, '--reflect'], capture_output=True, text=True, check=True).stdout)
     eps = refl.get('entryPoints', [])
-    if len(eps) != 1: red(f'{path}：入口 {eps} 不是单个')
+    if len(eps) != 1: red(f'{path}: entry points {eps} are not exactly one')
     stage = eps[0]['mode']
     if stage not in ('vert', 'frag'): return stage   # skipped (main counts them)
     dec = decorations(words)
@@ -87,10 +87,10 @@ def one(path, tmp, root):
         for r in refl.get(k, []):
             pair = (r.get('set', 0), r['binding']); by_pair[pair] = kind
             dims = r.get('array') or [1]
-            if len(dims) != 1 or not dims[0]: red(f'{path}：资源 {r.get("name")} 的数组维数 {dims} 没实现')
+            if len(dims) != 1 or not dims[0]: red(f'{path}: array dimensions {dims} of resource {r.get("name")} are not implemented')
             count[pair] = dims[0]   # an array of n descriptors takes n consecutive slots (Super Mario Galaxy: 4 position-matrix uniform buffers, 8 textures)
     pcs = refl.get('push_constants', [])
-    if len(pcs) > 1: red(f'{path}：{len(pcs)} 个 push constant 块')
+    if len(pcs) > 1: red(f'{path}: {len(pcs)} push constant blocks')
     slots, nxt, res = {}, {'buffer': 0, 'texture': 0, 'sampler': 0}, []
     for vid, d in sorted(dec.items(), key=lambda t: (t[1].get('set', 0), t[1].get('binding', 0))):
         if 'binding_at' not in d: continue
@@ -105,17 +105,17 @@ def one(path, tmp, root):
         words[d['binding_at']] = n
     pc_slot = nxt['buffer'] if pcs else None
     if pcs: nxt['buffer'] += 1
-    if nxt['buffer'] > 16 or nxt['texture'] > 31 or nxt['sampler'] > 16: red(f'{path}：资源槽超出 {nxt}')
+    if nxt['buffer'] > 16 or nxt['texture'] > 31 or nxt['sampler'] > 16: red(f'{path}: resource slots exceeded {nxt}')
     spv = os.path.join(tmp, key + '.spv'); msl = os.path.join(tmp, key + '.metal')
     open(spv, 'wb').write(struct.pack(f'<{len(words)}I', *words))
     cmd = ['spirv-cross', spv, '--msl', '--msl-version', '20300', '--msl-decoration-binding', '--rename-entry-point', 'main', f'vk_{key}', stage, '--output', msl]
     if stage == 'vert': cmd.append('--flip-vert-y')
     r = subprocess.run(cmd, capture_output=True, text=True)
-    if r.returncode: red(f'{path}：spirv-cross 失败：{r.stderr.strip()[:300]}')
+    if r.returncode: red(f'{path}: spirv-cross failed: {r.stderr.strip()[:300]}')
     # The reflection lists every declared resource; the Metal entry point only takes the ones the shader uses (Hades' ShadowMap.frag declares a buffer it never reads,
     # which the game's own pipeline layout leaves out): keep the rows whose slot is an argument of the entry point, so the host only binds, and only reports, real ones
     src = open(msl).read(); m = re.search(r'\bvk_' + key + r'\((.*?)\)\s*\{', src, re.S)
-    if not m: red(f'{path}：译出的 MSL 里找不到入口 vk_{key}')
+    if not m: red(f'{path}: entry point vk_{key} not found in the translated MSL')
     if pcs:   # the push-constant argument is `constant <block type>& name [[buffer(0)]]`: move it to its own slot
         tname = refl['types'][pcs[0]['type']]['name']
         a = re.search(r'constant\s+' + re.escape(tname) + r'&\s+\w+\s+\[\[buffer\((\d+)\)\]\]', m.group(1))
@@ -138,7 +138,7 @@ def metallib(msls, out, sdk, extra):
     def comp(m):
         a = m[:-6] + f'.{sdk}.air'
         r = subprocess.run(['xcrun', '-sdk', sdk, 'metal', '-c', '-fpreserve-invariance', *extra, m, '-o', a], capture_output=True, text=True)
-        if r.returncode: red(f'{m}：metal 编译失败：{r.stderr.strip()[:400]}')
+        if r.returncode: red(f'{m}: metal compile failed: {r.stderr.strip()[:400]}')
         return a
     with cf.ThreadPoolExecutor(os.cpu_count()) as ex: airs = list(ex.map(comp, msls))
     lib = os.path.join(out, 'vk_shaders.metallib')
@@ -149,10 +149,10 @@ def main():
     a = sys.argv[1:]
     ios = None
     if '--ios' in a: i = a.index('--ios'); ios = a[i + 1]; del a[i:i + 2]
-    if len(a) < 2: sys.exit('用法 | usage: vk_shaders.py <SPIR-V dir>... <out dir> [--ios <dir>]')
+    if len(a) < 2: sys.exit('usage: vk_shaders.py <SPIR-V dir>... <out dir> [--ios <dir>]')
     roots, out = a[:-1], a[-1]
     files = [(p, r) for r in roots for p in spirv_files(r)]
-    if not files: red(f'{" ".join(roots)} 里没有 SPIR-V 文件')
+    if not files: red(f'no SPIR-V files in {" ".join(roots)}')
     with tempfile.TemporaryDirectory() as tmp:
         with cf.ThreadPoolExecutor(os.cpu_count()) as ex: rows = list(ex.map(lambda pr: one(pr[0], tmp, pr[1]), files))
         seen, skipped = {}, {}
@@ -161,7 +161,7 @@ def main():
             key, stage, res, msl, src = row
             if key in seen: continue
             seen[key] = (stage, res, msl, src)
-        if skipped: print('【红】跳过 Metal 没有的着色器阶段 | skipped stages Metal does not have: ' + ', '.join(f'{k} {v}' for k, v in sorted(skipped.items())))
+        if skipped: print('[RED] skipped shader stages Metal does not have: ' + ', '.join(f'{k} {v}' for k, v in sorted(skipped.items())))
         msls = [m for v in seen.values() for m in v[2]]
         tsv = ['# Vulkan shaders (dm/gfx/tools/vk_shaders.py): key = sha256(SPIR-V)[:16], Metal function vk_<key>; resources kind:set.binding=slot (u uniform buffer, b storage buffer, t image, s sampler, c combined, p push constants)',
                '# spirv-cross ' + ' '.join((lambda r: r.stdout + r.stderr)(subprocess.run(['spirv-cross', '--revision'], capture_output=True, text=True)).split())]
@@ -171,6 +171,6 @@ def main():
         for d, sdk, extra in dirs:
             lib = metallib(msls, d, sdk, extra)
             open(os.path.join(d, 'vk_shaders.tsv'), 'w').write('\n'.join(tsv) + '\n')
-            print(f'{sdk}: {len(seen)} 个着色器 | shaders → {lib}')
+            print(f'{sdk}: {len(seen)} shaders → {lib}')
 
 if __name__ == '__main__': main()

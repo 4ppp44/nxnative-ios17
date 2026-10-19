@@ -1,5 +1,5 @@
 #include <stdint.h>
-// 「极乐世界」(Elysium): a per-character switch checked at character creation and unchangeable afterwards. While that character is in a run: unique drop rate ×5, sets ×3 (quality ratio table). For the implementation and its basis see dm_elysium.c
+// "Elysium": a per-character switch checked at character creation and unchangeable afterwards. While that character is in a run: unique drop rate ×5, sets ×3 (quality ratio table). For the implementation and its basis see dm_elysium.c
 #pragma once
 void dm_elysium_arm(int on);     // Called by the checkbox on the character creation page: 1 = the character created this time is an Elysium character, 0 = it is not. Applies only to the immediately following character creation and is cleared once used
 int dm_elysium_active(void);     // Whether the current run is the run of an Elysium character (tables changed)

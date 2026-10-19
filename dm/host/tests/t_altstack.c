@@ -9,6 +9,6 @@ int main(void) {
     size_t before = inuse();
     for (int i = 0; i < 2000; i++) { pthread_t t; pthread_create(&t, 0, body, 0); pthread_join(t, 0); }
     double grew = (inuse() - (double)before) / 1048576.0;
-    printf("2000 个短命线程后堆增长 %.2f MiB（期望 < 1；修前实测 250）%s\n", grew, grew < 1 ? "✓" : "✗");
+    printf("heap growth after 2000 short-lived threads %.2f MiB (expected < 1; measured 250 before the fix) %s\n", grew, grew < 1 ? "✓" : "✗");
     return !(grew < 1);
 }

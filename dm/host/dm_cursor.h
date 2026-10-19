@@ -27,7 +27,7 @@ int dm_ui_origin_point(float *nx, float *ny);   // Center of the original positi
 int dm_ui_drop_last(void);                      // Class of the most recently answered drag-and-drop landing point (used on release if this one has not been answered yet; -1 = none)
 int dm_ui_drop_point(float *nx, float *ny);   // Put-down position when the landing verdict is 5 (normalized)
 int dm_ui_drop_bag(void);                       // When the landing verdict is 5, whether the landing point is a player inventory cell (shelf drag-to-buy / dragging out of a stacked cell only complete here)
-int dm_fe_bliss(void);   // Whether 「极乐世界」(Elysium) on the character-creation mode page is checked (1 = checked; the last value is kept after the player leaves the mode page and is read at character creation). Readable from any thread
+int dm_fe_bliss(void);   // Whether "Elysium" on the character-creation mode page is checked (1 = checked; the last value is kept after the player leaves the mode page and is read at character creation). Readable from any thread
 int dm_ui_shelf_grid(float g[4]);   // Vendor shelf grid (normalized: top-left x,y, width and height of one cell); 0 = not probed yet
 int dm_ui_item_rect(unsigned seq, float r[4]);   // Screen rectangle of the goods being held down on the vendor shelf (normalized; used for the finger-following image when dragging goods); 0 = none / not ready yet, ask again next frame
 int dm_ui_stack_left(void);                       // How many items are in the stack of the stacked cell pressed this time; -1 = not read yet
@@ -38,7 +38,7 @@ void dm_ui_shop_buy_at(float nx, float ny);       // Goods on the vendor shelf d
 void dm_ui_item_tap(void);                       // Single tap in an item area: when in the 'identify scroll / tome used, waiting for target selection' state = identify the item under the cursor; does nothing when not in that state
 int dm_ui_targeting(void);                       // Whether that state is in effect right now (published by the host every frame, read from any thread)
 int dm_ui_panel_resident(const char *name);   // In-run always-on layers (the HUD layers, mercenary portrait bar, save indicator, button legend...): being open does not count as 'a panel is open'
-enum { DM_PS_BANK = 1, DM_PS_VENDOR = 2, DM_PS_DEAD = 4, DM_PS_TEXT = 8, DM_PS_IMBUE = 16, DM_PS_CUBE = 32, DM_PS_VAULT = 64 };   // VAULT = the stash is open on the sixth page 「编年史」(Chronicle) (dm_vault_ui.c)   // CUBE = the Horadric Cube page is open (HoradricCubeLayout)   // IMBUE = the single-item task slot panel is open (ImbueItemsPanel, shared by imbue / socketing / personalize / tomb pedestal)
+enum { DM_PS_BANK = 1, DM_PS_VENDOR = 2, DM_PS_DEAD = 4, DM_PS_TEXT = 8, DM_PS_IMBUE = 16, DM_PS_CUBE = 32, DM_PS_VAULT = 64 };   // VAULT = the stash is open on the sixth page "Chronicle" (dm_vault_ui.c)   // CUBE = the Horadric Cube page is open (HoradricCubeLayout)   // IMBUE = the single-item task slot panel is open (ImbueItemsPanel, shared by imbue / socketing / personalize / tomb pedestal)
 int dm_ui_panel_state(void);
 void dm_ui_lifecycle(int background);   /* Called when the front end enters / leaves the background: position guard self-check (dm_cursor.c mv_audit) */   // Panel state bits (published by reading the game's panel tree every frame; on change the synthetic UI message DM:PanelState is sent)
 int dm_ui_panel_shown(const char *name);   // This panel is visible in the game's panel tree right now (called from the game main thread)
@@ -68,7 +68,7 @@ void dm_ui_drag_lift(float ny);   // Before a drag starts, report how far the it
 int dm_ui_minimap_rect(float r[4]);
 // Full-screen map ↔ minimap (switched at runtime, not written to disk): dm_ui_map_full(1) switches to full screen, (0) returns to the minimap level set by the player; dm_ui_map_is_full() = whether the game is currently on the full-screen map (callable from any thread, refreshed every frame on the main thread)
 // Touch flow for skill binding (called by the front end from any thread, advanced every frame on the main thread): dm_ui_bind_begin(key) = choose a skill for this controller key (may carry ZL = second set) -- the host opens the skill tree,
-// the player taps a skill (while the flow is in progress the front end turns the tap into 'cursor to the point + press Y') -> the original game's 「重新绑定技能」(Press button to rebind skill) box pops up -> the host presses the target key for the player -> the panel closes. dm_ui_bind_active() = flow in progress (0 none / 1 opening the skill tree / 2 waiting for the player to tap a skill / 3 wrapping up)
+// the player taps a skill (while the flow is in progress the front end turns the tap into 'cursor to the point + press Y') -> the original game's "Press button to rebind skill" box pops up -> the host presses the target key for the player -> the panel closes. dm_ui_bind_active() = flow in progress (0 none / 1 opening the skill tree / 2 waiting for the player to tap a skill / 3 wrapping up)
 void dm_ui_bind_begin(uint64_t key_mask);
 int dm_ui_bind_slot(void);   /* Binding target slot 1..8 (F1–F8), 0 when not in the binding state */
 void dm_ui_safe_left(int units);    /* Left safe area, in layout units (2160 high); the mercenary / party member portrait bar in the top-left corner is moved inward by it */
@@ -79,7 +79,7 @@ void dm_ui_bind_cancel(void);
 void dm_ui_map_full(int on);
 int dm_ui_map_is_full(void);
 void dm_ui_text_entered(const char *text);   // Called when the system keyboard returns: text = final text written back to the game (UTF-8); pass NULL for cancel / empty string
-// Latency readout (diagnostic, DM_LAT_LOG=1): at key moments print a line 「LAT <毫秒时刻> <事件>」(LAT <millisecond timestamp> <event>), to measure the latency from finger down / release to the game taking effect
+// Latency readout (diagnostic, DM_LAT_LOG=1): at key moments print a line "LAT <millisecond timestamp> <event>", to measure the latency from finger down / release to the game taking effect
 int dm_lat_on(void);
 #define DM_LAT(fmt, ...) do { if (dm_lat_on()) LOG("LAT %llu " fmt, (unsigned long long)(now_ns() / 1000000), ##__VA_ARGS__); } while (0)
 void dm_ui_hand_idle(int idle);                  // Reported by the touch front end every tick: no fingers, no keys or cursor requests being sent / queued = 1 (used by the held-item guard, dm_cursor.c hand_guard)

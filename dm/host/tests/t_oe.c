@@ -26,7 +26,7 @@ static void reset(void) { g_mqh = g_mqn = 0; g_focus = 1; g_opmode = 1; g_ntf_op
 static int pop_is(uint32_t want) { uint32_t m = 999; return h_oe_TryPopMsg(&m) && m == want; }
 static int empty(void) { uint32_t m = 999; return !h_oe_TryPopMsg(&m) && m == 999; }
 static int child_kind;
-static void abort_exit(int sig) { (void)sig; dprintf(2, "【红】t_oe child kind=%d：10 秒看门狗超时\n", child_kind); _exit(97); } // the old-version die in the child process can be checked, avoiding a crash report or core
+static void abort_exit(int sig) { (void)sig; dprintf(2, "[RED] t_oe child kind=%d: 10 s watchdog timeout\n", child_kind); _exit(97); } // the old-version die in the child process can be checked, avoiding a crash report or core
 static void *focus_burst(void *p) { (void)p; for (int i = 0; i < 17; i++) { dm_focus_set(2); dm_focus_set(1); } return NULL; }
 static void *mode_burst(void *p) { (void)p; for (int i = 0; i < 17; i++) dm_set_opmode(i % 2); return NULL; }
 static pthread_mutex_t stage_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -76,94 +76,94 @@ static int s3_replay(int clustered) {   // clustered = 1: the slow frames of eac
 }
 static void test_scale3d(void) {
     s3 = (scale3d_ctl){.max_level = 2}; s3_now = 1000 * S3_SEC;
-    CHECK(s3_n(1200, F60) == 0, "动态比例：60 帧稳 20 秒 → 保持 0 级");
-    CHECK(s3_n(199, 20.0) == 0, "动态比例：50 帧（< 55.2）第 1 个窗 + 第 2 个窗差 1 帧 → 还没降");
-    CHECK(s3_n(1, 20.0) == 1, "动态比例：连续两个 2 秒窗都 50 帧 → 降到 1 级");
-    CHECK(s3_n(100, 20.0) == 1, "动态比例：换级后 2 秒内的帧不计（照样 50 帧也不降）");
-    CHECK(s3_n(200, 20.0) == 2, "动态比例：停判结束后再连两窗 50 帧 → 降到 2 级");
-    CHECK(s3_n(1000, 25.0) == 2, "动态比例：已到下限，再掉也停在 2 级");
+    CHECK(s3_n(1200, F60) == 0, "dynamic scale: steady 60 fps for 20 s → stays at level 0");
+    CHECK(s3_n(199, 20.0) == 0, "dynamic scale: 50 fps (< 55.2) in window 1 + window 2 short by 1 frame → not lowered yet");
+    CHECK(s3_n(1, 20.0) == 1, "dynamic scale: two 2 s windows in a row at 50 fps → lowered to level 1");
+    CHECK(s3_n(100, 20.0) == 1, "dynamic scale: frames within 2 s of a level change do not count (50 fps still does not lower)");
+    CHECK(s3_n(200, 20.0) == 2, "dynamic scale: after the hold ends, two more windows in a row at 50 fps → lowered to level 2");
+    CHECK(s3_n(1000, 25.0) == 2, "dynamic scale: at the floor, further drops stay at level 2");
     s3 = (scale3d_ctl){.max_level = 2, .level = 2}; s3_now = 1500 * S3_SEC;   // test stepping up from a clean level 2 (without the half bad window the previous section left in the window)
-    CHECK(s3_n(1199, F60) == 2, "动态比例：60 帧连续 9 个窗多 → 还不升");
-    CHECK(s3_n(1, F60) == 1, "动态比例：连续 10 个窗（20 秒）≥ 58.2 → 升到 1 级");
+    CHECK(s3_n(1199, F60) == 2, "dynamic scale: 60 fps for a little over 9 windows in a row → not raised yet");
+    CHECK(s3_n(1, F60) == 1, "dynamic scale: 10 windows in a row (20 s) ≥ 58.2 → raised to level 1");
     s3 = (scale3d_ctl){.max_level = 2}; s3_now = 2000 * S3_SEC;
     for (int k = 0; k < 10; k++) { s3_n(100, 20.0); s3_n(120, F60); }
-    CHECK(s3.level == 0, "动态比例：差窗与好窗交替（从不连两窗差）→ 不降");
+    CHECK(s3.level == 0, "dynamic scale: bad and good windows alternating (never two bad in a row) → not lowered");
     s3 = (scale3d_ctl){.max_level = 2, .level = 1}; s3_now = 2500 * S3_SEC;
-    CHECK(s3_n(1200 * 3, 1000.0 / 57) == 1, "动态比例：57 帧（介于 55.2 与 58.2 之间）60 秒 → 不降也不升");
+    CHECK(s3_n(1200 * 3, 1000.0 / 57) == 1, "dynamic scale: 57 fps (between 55.2 and 58.2) for 60 s → neither lowered nor raised");
     s3 = (scale3d_ctl){.max_level = 2}; s3_now = 3000 * S3_SEC;
     s3_n(90, F60); s3_one(500.0); s3_n(120 * 3, F60);
-    CHECK(s3.level == 0, "动态比例：窗里一次 500 ms 长卡顿（该窗约 45 帧）、下一窗正常 → 不降（要连两窗）");
+    CHECK(s3.level == 0, "dynamic scale: one 500 ms stall in a window (about 45 frames there), next window normal → not lowered (needs two in a row)");
     s3 = (scale3d_ctl){.max_level = 2}; s3_now = 3500 * S3_SEC; int lv = 0;
     for (int i = 0; i < 2000; i++) lv = s3_one(i % 4 == 0 ? -1 : F60);
-    CHECK(lv == 0, "动态比例：被系统丢弃的帧（−1）不计数，其余照 60 帧 → 不降");
+    CHECK(lv == 0, "dynamic scale: frames dropped by the system (−1) not counted, the rest at 60 fps → not lowered");
     for (int i = 0; i < 2000; i++) lv = s3_one(0);
-    CHECK(lv == 0, "动态比例：全是无读数（0）的帧 → 不动");
+    CHECK(lv == 0, "dynamic scale: all frames without a reading (0) → no change");
     // Debounce: knocked back down within 10 seconds of stepping up -> the next step-up needs 30 windows (60 seconds)
     s3 = (scale3d_ctl){.max_level = 2, .level = 1}; s3_now = 4000 * S3_SEC;
-    CHECK(s3_n(1200, F60) == 0, "防抖：20 秒好窗 → 升到 0 级");
+    CHECK(s3_n(1200, F60) == 0, "debounce: 20 s of good windows → raised to level 0");
     s3_n(120, F60);   // judging is suspended for 2 seconds after a level change
-    CHECK(s3_n(200, 20.0) == 1, "防抖：升上去后约 6 秒内连两窗 50 帧 → 打回 1 级");
+    CHECK(s3_n(200, 20.0) == 1, "debounce: two 50 fps windows in a row about 6 s after going up → back to level 1");
     s3_n(120, F60);
-    CHECK(s3_n(2400, F60) == 1, "防抖：刚升又掉，之后好窗 40 秒 → 不升（要 60 秒）");
-    CHECK(s3_n(1200, F60) == 0, "防抖：好窗满 60 秒 → 升到 0 级");
+    CHECK(s3_n(2400, F60) == 1, "debounce: dropped right after going up, then 40 s of good windows → not raised (needs 60 s)");
+    CHECK(s3_n(1200, F60) == 0, "debounce: a full 60 s of good windows → raised to level 0");
     s3_n(120, F60); s3_n(120 * 6, F60);   // drops only 12 seconds (> 10 seconds) after stepping up
-    CHECK(s3_n(200, 20.0) == 1, "防抖：升上去 12 秒后才掉 → 降到 1 级");
+    CHECK(s3_n(200, 20.0) == 1, "debounce: dropped only 12 s after going up → lowered to level 1");
     s3_n(120, F60);
-    CHECK(s3_n(1200, F60) == 0, "防抖：不算刚升又掉，20 秒好窗即升回");
+    CHECK(s3_n(1200, F60) == 0, "debounce: not a drop right after going up, 20 s of good windows raise it back");
     // 30 fps mode: target 30, step-down line 27.6, step-up line 29.1
     s3 = (scale3d_ctl){.max_level = 2, .period_ms = 1000.0 / 30}; s3_now = 6000 * S3_SEC;
-    CHECK(s3_n(600, 33.34) == 0, "30 帧档：33.34 ms（每窗 60 帧）稳 20 秒 → 保持 0 级");
-    CHECK(s3_n(100, 40.0) == 1, "30 帧档：25 帧（< 27.6）连两窗 → 降到 1 级");
+    CHECK(s3_n(600, 33.34) == 0, "30 fps tier: 33.34 ms (60 frames per window) steady for 20 s → stays at level 0");
+    CHECK(s3_n(100, 40.0) == 1, "30 fps tier: 25 fps (< 27.6) two windows in a row → lowered to level 1");
     // Injection: the rds run treats the interval of a stretch of frames as 25 ms (40 fps)
     s3 = (scale3d_ctl){.max_level = 2}; s3_now = 7000 * S3_SEC;
-    CHECK(s3_n(160, 25.0) == 1 && s3_n(80, 25.0) == 1 && s3_n(160, 25.0) == 2, "注入 25 ms：4 秒降到 1 级，停判 2 秒后再 4 秒降到 2 级");
+    CHECK(s3_n(160, 25.0) == 1 && s3_n(80, 25.0) == 1 && s3_n(160, 25.0) == 2, "inject 25 ms: 4 s to level 1, 2 s hold, then 4 s more to level 2");
     s3_n(120, F60);
-    CHECK(s3_n(1200, F60) == 1 && (s3_n(120, F60), s3_n(1200, F60)) == 0, "注入结束：每 20 秒升一级，回到 0 级");
+    CHECK(s3_n(1200, F60) == 1 && (s3_n(120, F60), s3_n(1200, F60)) == 0, "injection over: up one level every 20 s, back to level 0");
     int a = s3_replay(0), b = s3_replay(1);
-    printf("  （实玩第二段回放：慢帧均匀散开换级 %d 次，挤在一起换级 %d 次；旧控制器真机上 12 次）\n", a, b);
-    CHECK(a == 0 && b == 0, "动态比例：实玩第二段的慢帧序列（帧率 59+）不论散开还是挤在一起都不换级");
+    printf("  (replay of real play, part two: slow frames spread evenly changed level %d times, bunched together %d times; the old controller did 12 times on the device)\n", a, b);
+    CHECK(a == 0 && b == 0, "dynamic scale: the slow-frame sequence from real play part two (59+ fps) changes no level, spread out or bunched together");
 }
 int main(void) {
     test_scale3d();
     unsetenv("DM_OE_SCRIPT"); reset();
-    CHECK(empty(), "初始空队列：返回false且不改输出");
-    dm_focus_set(1); dm_set_opmode(1); CHECK(empty(), "相同状态不发通知");
-    dm_focus_set(3); CHECK(h_oe_GetFocus() == 3, "消费前即可查询后台状态3");
-    CHECK(pop_is(15) && empty(), "后台变化通知15恰一次");
+    CHECK(empty(), "empty queue at start: returns false and leaves the output alone");
+    dm_focus_set(1); dm_set_opmode(1); CHECK(empty(), "same state sends no notification");
+    dm_focus_set(3); CHECK(h_oe_GetFocus() == 3, "background state 3 can be queried before popping");
+    CHECK(pop_is(15) && empty(), "background change notification 15 exactly once");
     dm_focus_set(2); dm_focus_set(1);
-    CHECK(pop_is(15) && empty() && h_oe_GetFocus() == 1, "未消费的失焦/恢复合并，查询最终焦点1");
+    CHECK(pop_is(15) && empty() && h_oe_GetFocus() == 1, "unpopped focus-lost/resume merged, final focus queried as 1");
     reset(); g_ntf_opmode = g_ntf_perfmode = 1;
     dm_focus_set(2); dm_set_opmode(0); dm_focus_set(3); dm_set_opmode(1);
-    CHECK(pop_is(15) && pop_is(30) && pop_is(31) && empty(), "三类首次排位FIFO=15,30,31，重复不挪位");
-    CHECK(h_oe_GetFocus() == 3 && h_oe_GetOpMode() == 1 && h_oe_GetPerfMode() == 1, "重复通知不保存陈旧值，查询最新3/1/1");
+    CHECK(pop_is(15) && pop_is(30) && pop_is(31) && empty(), "first positions of the three kinds FIFO=15,30,31, repeats do not move them");
+    CHECK(h_oe_GetFocus() == 3 && h_oe_GetOpMode() == 1 && h_oe_GetPerfMode() == 1, "repeated notifications keep no stale value, latest 3/1/1 queried");
     reset(); g_ntf_opmode = g_ntf_perfmode = 1;
     dm_set_opmode(0); dm_focus_set(2); dm_set_opmode(1);
-    CHECK(pop_is(30) && pop_is(31) && pop_is(15) && empty(), "模式先变化时FIFO=30,31,15，成对顺序不变");
+    CHECK(pop_is(30) && pop_is(31) && pop_is(15) && empty(), "when the mode changes first FIFO=30,31,15, the pair order is unchanged");
     reset(); g_ntf_opmode = g_ntf_perfmode = 1;
-    dm_focus_set(2); CHECK(pop_is(15), "先弹出焦点通知");
+    dm_focus_set(2); CHECK(pop_is(15), "focus notification pops first");
     dm_set_opmode(0); dm_focus_set(1);
-    CHECK(pop_is(30) && pop_is(31) && pop_is(15) && empty(), "弹出后的恢复再次通知并排在待取模式消息之后");
-    CHECK(h_oe_GetFocus() == 1, "恢复后的当前焦点=1");
+    CHECK(pop_is(30) && pop_is(31) && pop_is(15) && empty(), "a resume after the pop notifies again and queues after the pending mode messages");
+    CHECK(h_oe_GetFocus() == 1, "current focus after resume=1");
     reset(); dm_set_opmode(0);
-    CHECK(empty() && h_oe_GetOpMode() == 0, "通知关闭只更新状态、不入队");
+    CHECK(empty() && h_oe_GetOpMode() == 0, "notifications off only update state, nothing queued");
     h_oe_SetOpModeNtf(0x100); h_oe_SetPerfModeNtf(0x101); dm_set_opmode(1);
-    CHECK(pop_is(31) && empty(), "通知bool只读低8位，性能单开只发31");
+    CHECK(pop_is(31) && empty(), "notification bool reads only the low 8 bits, performance alone sends only 31");
     h_oe_SetOpModeNtf(0x101); h_oe_SetPerfModeNtf(0x100); dm_set_opmode(0);
-    CHECK(pop_is(30) && empty(), "运行模式单开只发30");
+    CHECK(pop_is(30) && empty(), "operation mode alone sends only 30");
     reset(); mq_push(16); mq_push(16);
-    CHECK(pop_is(16) && pop_is(16) && empty(), "逐次事件16不合并，保留两次FIFO");
+    CHECK(pop_is(16) && pop_is(16) && empty(), "per-occurrence event 16 not merged, both kept in FIFO");
     reset(); g_ntf_opmode = g_ntf_perfmode = 1; dm_set_opmode(0);
-    CHECK(pop_is(30), "模式对中先消费30，31尚未消费");
+    CHECK(pop_is(30), "of the mode pair 30 popped first, 31 not yet");
     dm_set_opmode(1);
-    CHECK(pop_is(31) && pop_is(30) && empty() && h_oe_GetOpMode() == 1, "消费跨新变化：旧31保留排位，已弹30重新排队，最终模式1");
-    CHECK(child_burst(0), "34次焦点变化跨旧32槽，不终止且最终恢复1/一条15");
-    CHECK(child_burst(1), "17次模式变化跨旧32槽，不终止且最终0/30,31");
-    CHECK(child_burst(2), "两生产者并发，各类恰一条、30先于31、最终焦点1/模式0");
+    CHECK(pop_is(31) && pop_is(30) && empty() && h_oe_GetOpMode() == 1, "popping across a new change: old 31 keeps its place, popped 30 queued again, final mode 1");
+    CHECK(child_burst(0), "34 focus changes across the old 32 slots, no abort, final resume 1 / one 15");
+    CHECK(child_burst(1), "17 mode changes across the old 32 slots, no abort, final 0 / 30,31");
+    CHECK(child_burst(2), "two concurrent producers, exactly one of each kind, 30 before 31, final focus 1 / mode 0");
     reset(); g_ntf_opmode = g_ntf_perfmode = 1; int rotated = 1;
     for (int i = 0; i < 31; i++) { dm_focus_set(2 - i % 2); rotated &= pop_is(15) && empty(); }
-    CHECK(rotated, "31次逐条消费，把环头推进到尾槽");
+    CHECK(rotated, "31 pops one at a time, moving the ring head to the last slot");
     dm_focus_set(1); dm_set_opmode(0); dm_focus_set(3); dm_set_opmode(1);
-    CHECK(pop_is(15) && pop_is(30) && pop_is(31) && empty(), "跨32槽回绕后仍按15,30,31去重并保持首次顺序");
-    CHECK(child_burst(3), "消费者弹出后、查询前发生新变化：新恢复不漏通知，最终焦点1/模式0");
-    printf("== oe %d 项，失败 %d ==\n", checks, fails); return fails != 0;
+    CHECK(pop_is(15) && pop_is(30) && pop_is(31) && empty(), "after wrapping across 32 slots still deduplicated by 15,30,31 in first-seen order");
+    CHECK(child_burst(3), "new change after the consumer pops and before it queries: the new resume is not missed, final focus 1 / mode 0");
+    printf("== oe %d checks, %d failed ==\n", checks, fails); return fails != 0;
 }

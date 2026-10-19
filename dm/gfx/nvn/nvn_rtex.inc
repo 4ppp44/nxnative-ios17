@@ -64,12 +64,12 @@ static int rx_setup(MTLPixelFormat fc, MTLPixelFormat fds) {
     if (g_rx_pso1 && g_rx_fmt_c == fc && g_rx_fmt_ds == fds) return 1;
     static int failed; if (failed) return 0;
     NSError *e = nil; id<MTLLibrary> lib = [g_dev newLibraryWithSource:@(k_rx_msl) options:nil error:&e];
-    if (!lib) { MLOG("【红】运行时外推：着色器编译失败 %s", e.localizedDescription.UTF8String); failed = 1; return 0; }
+    if (!lib) { MLOG("[RED] runtime extrapolation: shader compile failed %s", e.localizedDescription.UTF8String); failed = 1; return 0; }
     MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new]; pd.vertexFunction = [lib newFunctionWithName:@"rx_vs"]; pd.fragmentFunction = [lib newFunctionWithName:@"rx_fs1"];
     pd.colorAttachments[0].pixelFormat = fc; pd.depthAttachmentPixelFormat = fds;
     if (fds == MTLPixelFormatDepth32Float_Stencil8) pd.stencilAttachmentPixelFormat = fds;
     g_rx_pso1 = [g_dev newRenderPipelineStateWithDescriptor:pd error:&e];
-    if (!g_rx_pso1) { MLOG("【红】运行时外推：管线建不出 %s", e.localizedDescription.UTF8String); g_rx_pso1 = nil; failed = 1; return 0; }
+    if (!g_rx_pso1) { MLOG("[RED] runtime extrapolation: cannot build the pipeline %s", e.localizedDescription.UTF8String); g_rx_pso1 = nil; failed = 1; return 0; }
     MTLDepthStencilDescriptor *dd = [MTLDepthStencilDescriptor new]; dd.depthCompareFunction = MTLCompareFunctionAlways; dd.depthWriteEnabled = YES;
     if (fds == MTLPixelFormatDepth32Float_Stencil8) { MTLStencilDescriptor *sd = [MTLStencilDescriptor new]; sd.stencilCompareFunction = MTLCompareFunctionEqual; sd.readMask = 0x2; sd.writeMask = 0x80; sd.depthStencilPassOperation = MTLStencilOperationReplace;   // Hole pixels / pixels newly entering from off-screen get 0x80 exported by the fragment, and the later LDR region is recomputed accordingly   // Pixels covered by this frame's UI (the UI stencil pass already wrote 0x2) do not count
         dd.frontFaceStencil = sd; dd.backFaceStencil = sd; }
@@ -77,8 +77,8 @@ static int rx_setup(MTLPixelFormat fc, MTLPixelFormat fds) {
     if (!g_rx_args) { MTL4ArgumentTableDescriptor *ad = [MTL4ArgumentTableDescriptor new]; ad.maxTextureBindCount = 3; ad.maxBufferBindCount = 1;
         g_rx_args = [g_dev newArgumentTableWithDescriptor:ad error:&e];
         for (int i = 0; i < 3; i++) { g_rx_const[i] = [g_dev newBufferWithLength:256 options:MTLResourceStorageModeShared]; res_add(g_rx_const[i]); } }
-    if (!g_rx_args || !g_rx_dss) { MLOG("【红】运行时外推：参数表 / 深度状态建不出"); g_rx_pso1 = nil; failed = 1; return 0; }
-    g_rx_fmt_c = fc; g_rx_fmt_ds = fds; MLOG("运行时外推：着色器建好（颜色格式 %lu，深度格式 %lu）", (unsigned long)fc, (unsigned long)fds);
+    if (!g_rx_args || !g_rx_dss) { MLOG("[RED] runtime extrapolation: cannot build the argument table / depth state"); g_rx_pso1 = nil; failed = 1; return 0; }
+    g_rx_fmt_c = fc; g_rx_fmt_ds = fds; MLOG("runtime extrapolation: shaders built (color format %lu, depth format %lu)", (unsigned long)fc, (unsigned long)fds);
     return 1;
 }
 static void rx_inv4(const double *m, double *o) {   // 4×4 inverse (adjugate method, double precision)
@@ -111,7 +111,7 @@ int rt_ex_encode(id<MTLTexture> dst_hdr, id<MTLTexture> dst_ds, id<MTLTexture> s
     if (g_rx_stv_src != src_ds) {
         if (g_rx_stv) defer_obj_release(g_rx_stv);
         g_rx_stv = [src_ds newTextureViewWithPixelFormat:MTLPixelFormatX32_Stencil8];
-        if (!g_rx_stv) { static int n; if (!n++) MLOG("【红】运行时外推：开不出模板视图（src_ds 要带 PixelFormatView 用途）"); return 0; }
+        if (!g_rx_stv) { static int n; if (!n++) MLOG("[RED] runtime extrapolation: cannot create the stencil view (src_ds needs the PixelFormatView usage)"); return 0; }
         res_add(g_rx_stv); g_rx_stv_src = src_ds;
     }
     // Constant: M = inv(vp_prev) · vp_cur (row vectors: clip_cur = (ndc_prev, z, 1) · M); Metal's float4x4 is stored by column, and row i of the row-vector matrix serves exactly as column i ⇒ write M * v in the shader

@@ -24,23 +24,23 @@ for p,atts in P.items():
         if act!='load': continue
         tot+=b
         d=D.get(p); why=[]
-        if not d: why.append('无绘制')
+        if not d: why.append('no draw')
         else:
             W,H=d['tgt']
-            if d['prim'] not in (4,5,7) or not 3<=d['vc']<=6 or d['inst']>1: why.append('非单个全屏图元')
-            if d['sc']!=(0,0,W,H): why.append('剪裁非整屏')
-            if d['vp'][:2]!=(0,0) or d['vp'][2]<W or d['vp'][3]<H: why.append('视口非整屏')
-            if slot=='d': why.append('深度读入（不判）')
+            if d['prim'] not in (4,5,7) or not 3<=d['vc']<=6 or d['inst']>1: why.append('not one fullscreen primitive')
+            if d['sc']!=(0,0,W,H): why.append('scissor not fullscreen')
+            if d['vp'][:2]!=(0,0) or d['vp'][2]<W or d['vp'][3]<H: why.append('viewport not fullscreen')
+            if slot=='d': why.append('depth load (not judged)')
             else:
                 i=int(slot[1:])
-                if d['blend']>>i&1: why.append('混合')
-                if (d['wm']>>(4*i))&0xf!=0xf: why.append('写掩码不满')
-            if d['dt'] and d['df']!=ALWAYS: why.append('深度测试')
-            if d['st']: why.append('模板测试')
+                if d['blend']>>i&1: why.append('blend')
+                if (d['wm']>>(4*i))&0xf!=0xf: why.append('partial write mask')
+            if d['dt'] and d['df']!=ALWAYS: why.append('depth test')
+            if d['st']: why.append('stencil test')
         if not why: cand+=b
-        rows.append((p,slot,s,fmt,b,'候选' if not why else '/'.join(why)))
-print('帧 %d：附件读入 %.1f MB；首绘全屏无依赖的候选 %.1f MB（%.0f%%）'%(FA,tot/1e6,cand/1e6,100*cand/tot if tot else 0))
+        rows.append((p,slot,s,fmt,b,'candidate' if not why else '/'.join(why)))
+print('frame %d: attachment loads %.1f MB; candidates (fullscreen first draw, no dependency) %.1f MB (%.0f%%)'%(FA,tot/1e6,cand/1e6,100*cand/tot if tot else 0))
 c=collections.Counter(r[5] for r in rows)
-for k,v in c.most_common(): print('  %-28s %3d 个  %.1f MB'%(k,v,sum(r[4] for r in rows if r[5]==k)/1e6))
+for k,v in c.most_common(): print('  %-28s %3d loads  %.1f MB'%(k,v,sum(r[4] for r in rows if r[5]==k)/1e6))
 for r in rows:
-    if r[5]=='候选': print('  候选 通道 %d %s ser=%d fmt%d %.1f MB'%(r[0],r[1],r[2],r[3],r[4]/1e6))
+    if r[5]=='candidate': print('  candidate pass %d %s ser=%d fmt%d %.1f MB'%(r[0],r[1],r[2],r[3],r[4]/1e6))

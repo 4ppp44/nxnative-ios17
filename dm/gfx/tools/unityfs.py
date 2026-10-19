@@ -25,14 +25,14 @@ def _decomp(raw, size, kind):
         f = lzma.LZMADecompressor(lzma.FORMAT_RAW, filters=[{'id': lzma.FILTER_LZMA1, 'dict_size': dict_size, 'lc': lc, 'lp': lp, 'pb': pb}])
         return f.decompress(raw[5:], size)[:size]
     if kind in (2, 3): return _lz4(raw, size)
-    raise ValueError(f'UnityFS 未知压缩 {kind}')
+    raise ValueError(f'UnityFS: unknown compression {kind}')
 
 def _cstr(d, p):
     e = d.index(b'\0', p); return d[p:e].decode('utf-8', 'replace'), e + 1
 
 def bundle_files(d):
     """UnityFS bundle → [(path, bytes)]"""
-    if d[:8] != b'UnityFS\0': raise ValueError('不是 UnityFS')
+    if d[:8] != b'UnityFS\0': raise ValueError('not UnityFS')
     fmt = struct.unpack_from('>I', d, 8)[0]
     _, p = _cstr(d, 12); _, p = _cstr(d, p)
     size, csz, usz, flags = struct.unpack_from('>qIII', d, p); p += 20
@@ -58,7 +58,7 @@ def bundle_files(d):
 def common_strings(image):
     """Unity's common string table in the game's main → {offset: string}"""
     a = image.find(b'AABB\0AnimationClip\0AnimationCurve\0')
-    if a < 0: raise ValueError('main 里找不到 Unity 公共字符串表（AABB\\0AnimationClip…）')
+    if a < 0: raise ValueError('no Unity common string table in main (AABB\\0AnimationClip...)')
     tab, p = {}, a
     while True:
         e = image.index(b'\0', p)
@@ -111,7 +111,7 @@ def serialized_objects(d, common, want=None, trees=None):
     """serialized file → yields (class ID, path ID, object dict); want = only decode these class IDs.
     trees = {(class ID, type hash): type tree}: files with type trees record theirs, files without (the game's own data.unity3d and so on) borrow one of the same class and hash -- the same hash means the same layout"""
     msz, fsz, ver, doff = struct.unpack_from('>IIII', d, 0)
-    if not 17 <= ver <= 22: raise ValueError(f'序列化文件格式 {ver} 未支持')
+    if not 17 <= ver <= 22: raise ValueError(f'serialized file format {ver} is not supported')
     p = 16; le = d[p] == 0; p += 4
     if ver >= 22: msz, fsz, doff, _ = struct.unpack_from('>Iqqq', d, p); p += 28
     r = Reader(d, le); r.p = p
@@ -146,7 +146,7 @@ def serialized_objects(d, common, want=None, trees=None):
     for pid, start, size, ti in objs:
         cid, h, root = tlist[ti]
         if want and cid not in want: continue
-        if root is None: raise NoTree(f'类 {cid}（类型哈希 {h.hex()}）没有类型树可用')
+        if root is None: raise NoTree(f'class {cid} (type hash {h.hex()}) has no type tree available')
         o = Reader(d, le); o.d = d[doff + start:doff + start + size]
         yield cid, pid, _read(o, root)
 

@@ -4,9 +4,9 @@
 // Register a new mode-specific behavior with one row here; do not check the mode separately elsewhere, and do not have the switch code call some module by name.
 //   X(name, side, enter, leave)   enter / leave: void (*)(void); write dm_mode_none (an empty function) when there is none
 #define DM_MODE_ITEMS(X) \
-    X("符文之语清单", 2, dm_mode_none, dm_runeword_ui_rebuild) \
-    X("前端路径理顺与替按键", 0, dm_mode_none, dm_ui_auto_mode_leave) \
-    X("界面触摸缓存与挪位表", 2, dm_mode_none, dm_ui_cache_mode_leave) \
-    X("主菜单构建号与新版本提示", 2, dm_update_mode_enter, dm_mode_none) \
-    X("死亡弹窗按当前模式重开", 2, dm_dead_modal_mode_enter, dm_mode_none) \
-    X("魔盒并排", 0, dm_mode_none, dm_cube_side_mode_leave)
+    X("runeword list", 2, dm_mode_none, dm_runeword_ui_rebuild) \
+    X("front end path straightening and key presses for the player", 0, dm_mode_none, dm_ui_auto_mode_leave) \
+    X("UI touch cache and widget move table", 2, dm_mode_none, dm_ui_cache_mode_leave) \
+    X("main menu build number and new version notice", 2, dm_update_mode_enter, dm_mode_none) \
+    X("death popup reopened for the current mode", 2, dm_dead_modal_mode_enter, dm_mode_none) \
+    X("cube side by side", 0, dm_mode_none, dm_cube_side_mode_leave)

@@ -62,9 +62,9 @@ for i in range(N):
                 uses[adrp(y, j * 4) + off].append(i * 4)
             break
 with open(out, 'w') as f:
-    f.write('# kind: evidence  main NVN 取址槽与静态调用点（nvn_slots.py）\nname\tslot\tnuses\tfirst_use\n')
+    f.write('# kind: evidence  main NVN fetch slots and static use sites (nvn_slots.py)\nname\tslot\tnuses\tfirst_use\n')
     for a in sorted(slot):
         u = uses[a]; f.write('%s\t%x\t%d\t%s\n' % (slot[a], a, len(u), '%x' % u[0] if u else '-'))
 if len(sys.argv) > 3: open(sys.argv[3], 'w').write(''.join(slot[a] + '\n' for a in sorted(slot)))
 used = sum(1 for a in slot if uses[a])
-print('槽 %d，有调用点 %d，调用点 %d' % (len(slot), used, sum(len(v) for v in uses.values())))
+print('slots %d, with use sites %d, use sites %d' % (len(slot), used, sum(len(v) for v in uses.values())))

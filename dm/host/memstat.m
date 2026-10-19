@@ -6,7 +6,7 @@
 // measured on Mac, after per-object dedup Σcharged is 2,139 MiB against phys_footprint 2,111 MiB (+1.3%)
 //   Classes: guest (the whole guest address space block, including the SetHeapSize heap, alias, stacks; data read from RomFS through pread also lands here), code (embedded / loaded module images),
 //         malloc (host heap), gpu (IOAccelerator / IOSurface / Metal tagged regions), stack, file (file mappings), other
-//   The part where charged ≠ phys_footprint (GPU private memory accounted by IOKit is not in any VM region) is listed separately as 「未归属」(unattributed) = footprint − Σcharged.
+//   The part where charged ≠ phys_footprint (GPU private memory accounted by IOKit is not in any VM region) is listed separately as "unattributed" = footprint − Σcharged.
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #include <TargetConditionals.h>
@@ -40,7 +40,7 @@ static int classify(vm_address_t a, const vm_region_submap_info_data_64_t *in) {
 // DM_MEMSTAT_DUMP=seconds: at that second, write every VM region ≥1 MiB line by line to <tsv>.regions (for diagnosing the accounting method)
 static void dump_regions(const char *path) {
     FILE *f = fopen(path, "w"); if (!f) return;
-    fprintf(f, "起址	大小MiB	类别	user_tag	share_mode	obj_id	ref_count	常驻MiB	脏MiB	换出MiB	文件\n");
+    fprintf(f, "start	size MiB	class	user_tag	share_mode	obj_id	ref_count	resident MiB	dirty MiB	swapped MiB	file\n");
     vm_address_t a = 0; vm_size_t sz; natural_t depth = 0; vm_size_t pg = vm_page_size;
     for (;;) {
         vm_region_submap_info_data_64_t in; mach_msg_type_number_t cnt = VM_REGION_SUBMAP_INFO_COUNT_64;
@@ -90,10 +90,10 @@ static void sample(FILE *f, double t, id<MTLDevice> dev) {
 
 static void *memstat_thread(void *p) {
     FILE *f = fopen((const char *)p, "w");
-    if (!f) { LOG("memstat：打不开 %s", (const char *)p); return NULL; }
-    fprintf(f, "# 单位 MiB；内核记账 internal / compressed / 图形 ledger / 距上限；类别列 = 虚拟/常驻/计费（按对象去重）；计费合计 = Σ私有计费；未归属 = phys_footprint − 计费合计\n秒\tphys_footprint\t可用\tmetal_alloc\tinternal\tcompressed\tgraphics\t距上限");
+    if (!f) { LOG("memstat: cannot open %s", (const char *)p); return NULL; }
+    fprintf(f, "# unit MiB; kernel accounting internal / compressed / graphics ledger / headroom to the limit; class columns = virtual/resident/charged (deduplicated per object); charged total = Σ private charged; unattributed = phys_footprint − charged total\nseconds\tphys_footprint\tavailable\tmetal_alloc\tinternal\tcompressed\tgraphics\theadroom");
     for (int c = 0; c < NC; c++) fprintf(f, "\t%s", k_cls[c]);
-    fprintf(f, "\t计费合计\t未归属\n");
+    fprintf(f, "\tcharged total\tunattributed\n");
     id<MTLDevice> dev = MTLCreateSystemDefaultDevice();   // The same device object as the graphics backend (the system default device singleton)
     uint64_t t0 = now_ns();
     const char *ds = getenv("DM_MEMSTAT_DUMP"); int dump_at = ds ? atoi(ds) : -1;
@@ -120,7 +120,7 @@ __attribute__((constructor)) static void memstat_start(void) {
 static void *thrcpu_thread(void *p) {
     char path[1024]; int iv = 10; { const char *c = strchr((const char *)p, ','); snprintf(path, sizeof path, "%.*s", c ? (int)(c - (const char *)p) : (int)strlen(p), (const char *)p); if (c) iv = atoi(c + 1); }
     FILE *f = fopen(path, "w"); if (!f) return NULL;
-    fprintf(f, "秒\t线程号\t线程名\tCPU%%\n"); fflush(f);
+    fprintf(f, "seconds\tthread ID\tthread name\tCPU%%\n"); fflush(f);
     static uint64_t ids[THR_MAX], last[THR_MAX]; int n = 0; uint64_t t0 = now_ns(), tl = t0;
     for (;;) {
         sleep(iv); uint64_t t = now_ns(); double dt = (t - tl) / 1e9, tot = 0; tl = t;
@@ -140,7 +140,7 @@ static void *thrcpu_thread(void *p) {
             mach_port_deallocate(mach_task_self(), th[i]);
         }
         vm_deallocate(mach_task_self(), (vm_address_t)th, nt * sizeof *th);
-        fprintf(f, "%.0f\t-\t合计\t%.1f\n", (t - t0) / 1e9, tot); fflush(f);
+        fprintf(f, "%.0f\t-\ttotal\t%.1f\n", (t - t0) / 1e9, tot); fflush(f);
     }
     return NULL;
 }

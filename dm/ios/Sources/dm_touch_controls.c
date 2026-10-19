@@ -248,7 +248,7 @@ static _Atomic unsigned g_hover_unid;
 void dm_tc_set_hover_unid(unsigned id) { atomic_store(&g_hover_unid, id); }
 static _Atomic int g_imbue_open;   /* Single-item quest slot panel open (imbue / socket / personalize / tomb pedestal, all the same ImbueItemsPanel) */
 static _Atomic int g_cube_open;   /* Horadric Cube page open: double tap = hold Y (the original game's "move to the other side": inventory → cube / cube → inventory), not "use / equip" */
-static _Atomic int g_vault_open;   /* Stash open on page six 「编年史」(Chronicle): double-tapping an inventory item = store it in the Chronicle vault (goes through use_seq; the host's ui_use_pump determines the page); do not send the original game's "hold Y" -- the game treats that page as the cube page */
+static _Atomic int g_vault_open;   /* Stash open on page six "Chronicle": double-tapping an inventory item = store it in the Chronicle vault (goes through use_seq; the host's ui_use_pump determines the page); do not send the original game's "hold Y" -- the game treats that page as the cube page */
 static _Atomic int g_bank_open;   /* Stash open (set by the front end from the host's reading of the game panel tree, not from open/close messages): double tap = hold Y (move to the other side) */
 void dm_tc_set_panel_state(int bits) { atomic_store(&g_bank_open, (bits & 1) != 0); atomic_store(&g_vendor_open, (bits & 2) != 0); atomic_store(&g_dead_modal, (bits & 4) != 0); atomic_store(&g_imbue_open, (bits & 16) != 0); atomic_store(&g_cube_open, (bits & 32) != 0); atomic_store(&g_vault_open, (bits & 64) != 0); }   /* Bits are the same as DM_PS_* in dm_cursor.h; obtained by the host reading the game state */
 
@@ -430,7 +430,7 @@ void dm_tc_begin_at(dm_tc_state *s, int slot, float x, float y, double now_s) {
     }
     int enabled = hit >= 0 && (s->enabled_targets & (1u << hit));
     /*Panel state: disabled targets (bottom-bar belt / function key / town portal, and the skill button positions after the round buttons are hidden) do not capture fingers -- the place they cover may be exactly a panel button
-              (「应用」(Apply) on the settings page is at the bottom of the screen and landed on a disabled bottom-bar target, getting neither classified nor clicked). In game state they still capture (preventing a hidden town-portal touch point from turning into the stick) */
+              ("Apply" on the settings page is at the bottom of the screen and landed on a disabled bottom-bar target, getting neither classified nor clicked). In game state they still capture (preventing a hidden town-portal touch point from turning into the stick) */
     if (s->navigation_mode && hit >= 0 && !enabled) hit = DM_TC_NONE;
     if(enabled && hit==DM_TC_PORTAL && s->layout.target[hit].button && s->portal_phase==0) {
         ++s->gesture_epoch;
@@ -446,7 +446,7 @@ void dm_tc_begin_at(dm_tc_state *s, int slot, float x, float y, double now_s) {
         s->pointer_slot = slot;
         s->pointer_item = 0;
         /*In mouse click mode the controller cursor follows only "a finger that landed in the item area" (the front end calls dm_tc_pointer_item once it has the hit answer):
-                      the cursor moves by pushing the stick, and on pages without a free cursor (options, pause menu, waypoint) pushing the stick = changing the current option / moving the focus (tapping a tab changed 「显示物品」(Show Items) as a side effect) */
+                      the cursor moves by pushing the stick, and on pages without a free cursor (options, pause menu, waypoint) pushing the stick = changing the current option / moving the focus (tapping a tab changed "Show Items" as a side effect) */
         if (!s->mouse_click_mode) { s->pointer_valid = 1; s->pointer_x = x; s->pointer_y = y; }
     } else if (!s->navigation_mode && hit == DM_TC_NONE && g_edge_b > 0 && x >= 0 && x < s->layout.width*0.43f && y > s->layout.height - g_edge_b) {
         f->target = DM_TC_EDGE;
@@ -500,7 +500,7 @@ void dm_tc_end_at(dm_tc_state *s, int slot, double now_s) {
     if (s->navigation_mode && slot == s->pointer_slot) {
         float distance = hypotf(done.x-done.aim_origin_x, done.y-done.aim_origin_y);
         double elapsed = now_s - done.start_time_s;
-        /* Long press on goods on the vendor shelf = the original game's 「按住 Y 大量购买」(Hold Y to buy in bulk) (button legend text; host reading: about 1.3 seconds): when the inventory has a non-full scroll tome / stack of the same kind it buys until full, otherwise it is the same as buying 1; how many to buy and whether there is enough gold are decided by the game, and here we only press the key for the player */
+        /* Long press on goods on the vendor shelf = the original game's "Hold Y to buy in bulk" (button legend text; host reading: about 1.3 seconds): when the inventory has a non-full scroll tome / stack of the same kind it buys until full, otherwise it is the same as buying 1; how many to buy and whether there is enough gold are decided by the game, and here we only press the key for the player */
         if (done.pointer_long && !done.pointer_dragged && !done.shop_drag && s->pointer_item == 1 && s->pointer_shop) pointer_pulse_btn(s, done.aim_origin_x, done.aim_origin_y, 2, DM_BTN_Y, 1.3);
         else if (done.pointer_long && !done.pointer_dragged && !done.shop_drag && s->pointer_item == 1 && !s->pointer_lock) ++s->long_press_seq;   /* Long press counts only at release (held without moving): if it counted as soon as the hold time was reached, a potion that is "held for a moment and then dragged" would first be put into the belt (2 extra occurrences in the potion-drag-to-belt script on the second Mac) */
         if (done.locked_drag) { }   /* Dragging another item while the single-item slot is occupied: send no key */
@@ -536,7 +536,7 @@ void dm_tc_end_at(dm_tc_state *s, int slot, double now_s) {
                     else if (atomic_load(&g_cube_open) && !atomic_load(&g_bank_open)) pointer_pulse_btn(s, ox, oy, 2, DM_BTN_Y, DM_TC_HOLD_USE_S);   /* Cube page (not the cell embedded in the stash): in the original game holding Y sends the item into / out of the cube in one step; same rule as double tap on the stash page */
                     else ++s->use_seq;   /* Stash open: hold Y = move to the other side (except the cube: in the original game holding A with the stash open still opens the cube, per the code); otherwise hand it to the host to use on the spot (it used to hold A for 0.6 seconds and took effect only after about 0.4 seconds) */
                     s->last_tap_s = -1e9; }
-                else {   /* Single tap: move the cursor. Tapping the same spot again after a while (not a double tap) = compare with the other equipped item (the original game cycles with ZL; tooltip text 「再点一次与另一件比较」(Tap again to compare with the other one)) */
+                else {   /* Single tap: move the cursor. Tapping the same spot again after a while (not a double tap) = compare with the other equipped item (the original game cycles with ZL; tooltip text "Tap again to compare with the other one") */
                     int again = now_s - s->last_tap_s < 8.0 && hypotf(ox - s->last_tap_x, oy - s->last_tap_y) <= 2 * DM_TC_POINTER_MOVE_PT * scale_for(&s->layout);
                     if (again && !atomic_load(&g_bank_open) && !atomic_load(&g_vendor_open)) pointer_pulse_btn(s, ox, oy, 2, DM_BTN_ZL, 0);   /* With the stash / vendor page open ZL switches tabs, so do not send it (a second tap on goods flipped the shelf to the next page) */
                     else if (!s->pulse_button) { s->pointer_x = ox; s->pointer_y = oy; }
@@ -606,7 +606,7 @@ void dm_tc_tick(dm_tc_state *s, double now_s) {
         s->stash_x_check_s = 0;
         if (atomic_load(&g_bank_open) && atomic_load(&g_cur_stack) == s->stash_x_id && !s->holding && !s->pulse_button) { pointer_pulse_btn(s, s->stash_x_x, s->stash_x_y, 2, DM_BTN_Y, DM_TC_HOLD_USE_S); update(s); }
     }
-    if (s->close_left > 0 && atomic_exchange(&g_close_stop, 0)) s->close_left = 0;   /* The back button brought up a confirmation box (the settings page has unapplied changes): stop and let the player answer -- one more press would choose 「放弃」(Discard) on their behalf (changes lost) */
+    if (s->close_left > 0 && atomic_exchange(&g_close_stop, 0)) s->close_left = 0;   /* The back button brought up a confirmation box (the settings page has unapplied changes): stop and let the player answer -- one more press would choose "Discard" on their behalf (changes lost) */
     if (s->close_left > 0) {   /* Tap outside the panel = close all the way: if the panel is still open and the previous B has been released, press once more after 0.3 seconds */
         if (!s->navigation_mode) s->close_left = 0;
         else if (!s->pulse_button && now_s >= s->close_next_s) { s->pulse_button = DM_BTN_B; s->pulse_hold_s = 0; s->pulse_rx = s->pulse_ry = 0; s->pointer_pulse_active = 2; ++s->pulse_epoch; --s->close_left; s->close_next_s = now_s + 0.3; update(s); }
@@ -639,7 +639,7 @@ int dm_tc_navigation(dm_tc_scene *s, const char *cat, const char *act, const cha
     }
     return !s->game||s->panels!=0;
 }
-/* Death popup open: also counts as navigation state (touch points go through UI clicks, so 「继续」(Continue) can be tapped), but the five controller round buttons are not offered -- after death a tap at a skill button position triggers resurrection, which is easy to hit by mistake */
+/* Death popup open: also counts as navigation state (touch points go through UI clicks, so "Continue" can be tapped), but the five controller round buttons are not offered -- after death a tap at a skill button position triggers resurrection, which is easy to hit by mistake */
 int dm_tc_scene_dead(void) { return atomic_load(&g_dead_modal); }
 int dm_tc_scene_dialog_only(const dm_tc_scene *s) { return s->game && s->panels == (1ull << 9); }   /* Entry 9 of the panel table = NpcDialogPanel (see names in dm_tc_navigation) */
 

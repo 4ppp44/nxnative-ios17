@@ -14,7 +14,7 @@ void crash_install(void);
 static int g_fail;
 #define EXPECT(name, want, got) do { \
     long long want_ = (long long)(want), got_ = (long long)(got); \
-    printf("%-52s 期望 %-4lld → 真结果 %-4lld %s\n", name, want_, got_, want_ == got_ ? "✓" : "✗"); \
+    printf("%-52s expected %-4lld → got %-4lld %s\n", name, want_, got_, want_ == got_ ? "✓" : "✗"); \
     if (want_ != got_) g_fail++; \
 } while (0)
 
@@ -39,7 +39,7 @@ int main(void) {
     nvn_dirty_protect(reused, 4096);
     uint64_t stamp = nvn_dirty_now();
     ((volatile uint8_t *)reused)[0] = 1;
-    EXPECT("累计 65 次销池后新池写入被判脏", 1, nvn_dirty_since(reused, 4096, stamp));
+    EXPECT("after 65 pool destroys in total, a write to a new pool is dirty", 1, nvn_dirty_since(reused, 4096, stamp));
     nvn_dirty_remove_range(reused);
     munmap(reused, 4096);
 
@@ -52,7 +52,7 @@ int main(void) {
     nvn_dirty_protect(overflow, 4096);
     stamp = nvn_dirty_now();
     ((volatile uint8_t *)overflow)[0] = 2;
-    EXPECT("同时存活超过上限的池保守判脏", 1, nvn_dirty_since(overflow, 4096, stamp));
+    EXPECT("pools beyond the live limit are conservatively dirty", 1, nvn_dirty_since(overflow, 4096, stamp));
     for (int i = 0; i < 300; i++) {
         nvn_dirty_remove_range(live[i]);
         munmap(live[i], 4096);
@@ -63,12 +63,12 @@ int main(void) {
     void **many = malloc(NMANY * sizeof *many);
     for (int i = 0; i < NMANY; i++) { many[i] = page_map(); nvn_dirty_add_range(many[i], 4096); }
     void *last = many[NMANY - 1];
-    EXPECT("同时存活 5000 个池：最后一个在跟踪", 1, nvn_dirty_tracked(last, 4096));
+    EXPECT("5000 live pools: the last one is tracked", 1, nvn_dirty_tracked(last, 4096));
     nvn_dirty_protect(last, 4096);
     stamp = nvn_dirty_now();
-    EXPECT("第 5000 个池保护后没人写：不脏", 0, nvn_dirty_since(last, 4096, stamp));
+    EXPECT("pool 5000 not written after protect: clean", 0, nvn_dirty_since(last, 4096, stamp));
     ((volatile uint8_t *)last)[0] = 5;
-    EXPECT("第 5000 个池被游戏写：脏", 1, nvn_dirty_since(last, 4096, stamp));
+    EXPECT("pool 5000 written by the game: dirty", 1, nvn_dirty_since(last, 4096, stamp));
     for (int i = 0; i < NMANY; i++) { nvn_dirty_remove_range(many[i]); munmap(many[i], 4096); }
     free(many);
 
@@ -80,23 +80,23 @@ int main(void) {
     size_t na = pg - 0x1000, nb = 2 * pg, tex = pg + 0x800;   // the texture in B spans the shared page and the next one
     nvn_dirty_add_range(pa, na);
     nvn_dirty_add_range(pb, nb);
-    EXPECT("共页的后一个池里的贴图在跟踪", 1, nvn_dirty_tracked(pb, tex));
+    EXPECT("texture in the later of two page-sharing pools is tracked", 1, nvn_dirty_tracked(pb, tex));
     nvn_dirty_protect(pb, tex);
     stamp = nvn_dirty_now();
-    EXPECT("共页贴图保护后没人写：不脏", 0, nvn_dirty_since(pb, tex, stamp));
+    EXPECT("page-sharing texture not written after protect: clean", 0, nvn_dirty_since(pb, tex, stamp));
     pb[0x10] = 3;
-    EXPECT("游戏写共页里 B 的部分：B 的贴图脏", 1, nvn_dirty_since(pb, tex, stamp));
+    EXPECT("game writes B's part of the shared page: B's texture dirty", 1, nvn_dirty_since(pb, tex, stamp));
     nvn_dirty_protect(pb, tex);
     stamp = nvn_dirty_now();
     pa[0x10] = 4;   // same physical page, A's part: the page is read-only, the fault must be claimed through B's range or it is treated as a crash
-    EXPECT("游戏写共页里 A 的部分：B 的贴图保守判脏", 1, nvn_dirty_since(pb, tex, stamp));
+    EXPECT("game writes A's part of the shared page: B's texture conservatively dirty", 1, nvn_dirty_since(pb, tex, stamp));
     nvn_dirty_protect(pb, tex);
     stamp = nvn_dirty_now();
     dm_guest_write_prepare(pa, 0x20); pa[0x20] = 5;   // the host writes A on behalf of the GPU: the shared page must also release B's protection
-    EXPECT("宿主写前解保护共页：B 的贴图脏", 1, nvn_dirty_since(pb, tex, stamp));
+    EXPECT("host unprotects the shared page before writing: B's texture dirty", 1, nvn_dirty_since(pb, tex, stamp));
     nvn_dirty_remove_range(pb);
-    EXPECT("销 B 后 A 仍在跟踪（按池起点认区间）", 1, nvn_dirty_tracked(pa, na));
-    EXPECT("销 B 后 B 不再跟踪", 0, nvn_dirty_tracked(pb, tex));
+    EXPECT("A still tracked after destroying B (ranges keyed by pool start)", 1, nvn_dirty_tracked(pa, na));
+    EXPECT("B no longer tracked after destroying B", 0, nvn_dirty_tracked(pb, tex));
     nvn_dirty_remove_range(pa);
     munmap(blk, 4 * pg);
     return g_fail != 0;

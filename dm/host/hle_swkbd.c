@@ -74,10 +74,10 @@ Result swkbd_show(void *out, const void *arg_, swkbd_input_fn input) {
     int r = script ? (snprintf(text, sizeof text, "%s", script), 1) : input(title, sub, guide, init, maxlen > 0 ? maxlen : 0, text, sizeof text);
     if (!script) guest_clock_freeze_for(2, 0);
     g_swkbd_numeric_max = -1;   // the numeric box mark applies to this one time only (set by dm_textinput.c before bringing up the keyboard)
-    LOG("swkbd：标题「%s」初始「%s」上限 %d → %s%s%s", title, init, maxlen,
-        r > 0 ? "确定「" : r == 0 ? "取消" : "无窗口按取消", r > 0 ? text : "", r > 0 ? "」" : "");
+    LOG("swkbd: title '%s' initial '%s' limit %d → %s%s%s", title, init, maxlen,
+        r > 0 ? "OK '" : r == 0 ? "cancel" : "no window, treated as cancel", r > 0 ? text : "", r > 0 ? "'" : "");
     if (r <= 0) return SWKBD_RESULT_CANCELED;
-    if (g_swkbd_name_panel && g_swkbd_unfilter && g_swkbd_unfilter()) LOG("swkbd：起名面板——已关掉游戏对返回串的 ASCII 键入过滤（中文名放行，见 hle_charname.c）");
+    if (g_swkbd_name_panel && g_swkbd_unfilter && g_swkbd_unfilter()) LOG("swkbd: naming panel -- turned off the game's ASCII input filter on the returned string (Chinese names allowed, see hle_charname.c)");
 
     uint8_t *buf; uint64_t cap; memcpy(&buf, (uint8_t *)out, 8); memcpy(&cap, (uint8_t *)out + 8, 8);
     if (!buf || !cap) return RES_OK;                         // same as the SDK: if String has no buffer, the text is not read
@@ -90,7 +90,7 @@ Result swkbd_show(void *out, const void *arg_, swkbd_input_fn input) {
     return RES_OK;
 }
 
-HLE_FORCE("_ZN2nn5swkbd12ShowKeyboardEPNS0_6StringERKNS0_15ShowKeyboardArgE", "软键盘小程序 → 宿主原生输入框（DM_KBD 直给文本）",
+HLE_FORCE("_ZN2nn5swkbd12ShowKeyboardEPNS0_6StringERKNS0_15ShowKeyboardArgE", "software keyboard applet → host native input box (DM_KBD gives the text directly)",
           Result, h_swkbd_Show, void *out, const void *arg) {
     return swkbd_show(out, arg, front_text_input);
 }
@@ -108,38 +108,38 @@ static int ikb_slot(const void *kb) {   // the caller holds the lock
     for (int i = 0; i < 4; i++) if (!g_ikb[i].kb) { g_ikb[i].kb = kb; return i; }
     return -1;
 }
-HLE_FORCE("_ZN2nn5swkbd14InlineKeyboard10InitializeEPv", "内嵌键盘：不起小程序（宿主无小程序代理），报成功", unsigned, h_ikb_Init, void *kb, void *work) {
+HLE_FORCE("_ZN2nn5swkbd14InlineKeyboard10InitializeEPv", "inline keyboard: no applet started (the host has no applet proxy), reports success", unsigned, h_ikb_Init, void *kb, void *work) {
     (void)work; pthread_mutex_lock(&g_ikb_mu); int i = ikb_slot(kb); pthread_mutex_unlock(&g_ikb_mu);
-    LOG("swkbd：内嵌键盘 Initialize %p（宿主不起小程序；Appear 一律按玩家取消）%s", kb, i < 0 ? "【红】登记表满" : "");
+    LOG("swkbd: inline keyboard Initialize %p (the host starts no applet; Appear always counts as the player cancelling)%s", kb, i < 0 ? "[RED] registration table full" : "");
     return 1;
 }
-HLE_FORCE("_ZN2nn5swkbd14InlineKeyboard8FinalizeEv", "内嵌键盘：没起小程序，无可关", void, h_ikb_Fin, void *kb) {
+HLE_FORCE("_ZN2nn5swkbd14InlineKeyboard8FinalizeEv", "inline keyboard: no applet started, nothing to close", void, h_ikb_Fin, void *kb) {
     pthread_mutex_lock(&g_ikb_mu); for (int i = 0; i < 4; i++) if (g_ikb[i].kb == kb) memset(&g_ikb[i], 0, sizeof g_ikb[i]); pthread_mutex_unlock(&g_ikb_mu);
 }
-HLE_FORCE("_ZN2nn5swkbd14InlineKeyboardD1Ev", "内嵌键盘析构：没起小程序，只清登记", void, h_ikb_Dtor, void *kb) { h_ikb_Fin(kb); }
-HLE_FORCE("_ZN2nn5swkbd14InlineKeyboard24SetDecidedCancelCallbackEPFvvE", "内嵌键盘：记下取消回调", void, h_ikb_SetCancel, void *kb, ikb_cb0 fn) {
+HLE_FORCE("_ZN2nn5swkbd14InlineKeyboardD1Ev", "inline keyboard destructor: no applet started, only clears the registration", void, h_ikb_Dtor, void *kb) { h_ikb_Fin(kb); }
+HLE_FORCE("_ZN2nn5swkbd14InlineKeyboard24SetDecidedCancelCallbackEPFvvE", "inline keyboard: records the cancel callback", void, h_ikb_SetCancel, void *kb, ikb_cb0 fn) {
     pthread_mutex_lock(&g_ikb_mu); int i = ikb_slot(kb); if (i >= 0) g_ikb[i].cancel = fn; pthread_mutex_unlock(&g_ikb_mu);
 }
 #define IKB_IGNORE_CB(mangled, cname) \
-    HLE_FORCE(mangled, "内嵌键盘：回调只记不调（键盘从不确定 / 改字 / 移光标）", void, cname, void *kb, void *fn) { (void)kb; (void)fn; }
+    HLE_FORCE(mangled, "inline keyboard: callbacks are recorded, never called (the keyboard never confirms / edits text / moves the cursor)", void, cname, void *kb, void *fn) { (void)kb; (void)fn; }
 IKB_IGNORE_CB("_ZN2nn5swkbd14InlineKeyboard22SetMovedCursorCallbackEPFvPKNS0_14MovedCursorArgEE", h_ikb_SetMoved)
 IKB_IGNORE_CB("_ZN2nn5swkbd14InlineKeyboard23SetDecidedEnterCallbackEPFvPKNS0_15DecidedEnterArgEE", h_ikb_SetEnter)
 IKB_IGNORE_CB("_ZN2nn5swkbd14InlineKeyboard24SetChangedStringCallbackEPFvPKNS0_16ChangedStringArgEE", h_ikb_SetChanged)
 IKB_IGNORE_CB("_ZN2nn5swkbd14InlineKeyboard27SetFinishedKeyboardCallbackEPFvvE", h_ikb_SetFinished)
-HLE_FORCE("_ZN2nn5swkbd14InlineKeyboard6AppearERKNS0_9AppearArgE", "内嵌键盘出现：宿主不显示，下一次 Calc 按玩家取消", void, h_ikb_Appear, void *kb, const void *arg) {
+HLE_FORCE("_ZN2nn5swkbd14InlineKeyboard6AppearERKNS0_9AppearArgE", "inline keyboard appears: the host does not show it, the next Calc counts as the player cancelling", void, h_ikb_Appear, void *kb, const void *arg) {
     (void)arg; pthread_mutex_lock(&g_ikb_mu); int i = ikb_slot(kb); if (i >= 0) g_ikb[i].pending = 1; pthread_mutex_unlock(&g_ikb_mu);
-    LOG("swkbd：内嵌键盘 Appear %p → 下一拍按取消", kb);
+    LOG("swkbd: inline keyboard Appear %p → cancel on the next tick", kb);
 }
-HLE_FORCE("_ZN2nn5swkbd14InlineKeyboard9DisappearEv", "内嵌键盘收起：宿主本就不显示", void, h_ikb_Disappear, void *kb) {
+HLE_FORCE("_ZN2nn5swkbd14InlineKeyboard9DisappearEv", "inline keyboard hidden: the host never showed it", void, h_ikb_Disappear, void *kb) {
     pthread_mutex_lock(&g_ikb_mu); int i = ikb_slot(kb); if (i >= 0) g_ikb[i].pending = 0; pthread_mutex_unlock(&g_ikb_mu);
 }
-HLE_FORCE("_ZN2nn5swkbd14InlineKeyboard4CalcEv", "内嵌键盘每帧更新：有待取消的就调游戏的取消回调", void, h_ikb_Calc, void *kb) {
+HLE_FORCE("_ZN2nn5swkbd14InlineKeyboard4CalcEv", "inline keyboard per-frame update: calls the game's cancel callback when a cancel is pending", void, h_ikb_Calc, void *kb) {
     ikb_cb0 fn = NULL; pthread_mutex_lock(&g_ikb_mu); int i = ikb_slot(kb);
     if (i >= 0 && g_ikb[i].pending) { g_ikb[i].pending = 0; fn = g_ikb[i].cancel; }
     pthread_mutex_unlock(&g_ikb_mu);
     if (fn) fn();   // guest code, called on the guest thread that called Calc (as on hardware)
 }
-HLE_FORCE("_ZN2nn5swkbd14InlineKeyboard12SetInputTextERKNS0_9InputTextE", "内嵌键盘：设文本（宿主不显示，忽略）", void, h_ikb_SetText, void *kb, const void *t) { (void)kb; (void)t; }
-HLE_FORCE("_ZN2nn5swkbd14InlineKeyboard12SetCursorPosEi", "内嵌键盘：设光标（宿主不显示，忽略）", void, h_ikb_SetCursor, void *kb, int pos) { (void)kb; (void)pos; }
-HLE_FORCE("_ZN2nn5swkbd14InlineKeyboard8GetImageEPvm", "内嵌键盘画面：无（返回 false）", unsigned, h_ikb_GetImage, void *kb, void *buf, size_t n) { (void)kb; (void)buf; (void)n; return 0; }
-HLE_FORCE("_ZNK2nn5swkbd14InlineKeyboard13GetWindowSizeEPiS2_", "内嵌键盘窗口尺寸：0 × 0", void, h_ikb_WinSize, const void *kb, int *w, int *h) { (void)kb; if (w) *w = 0; if (h) *h = 0; }
+HLE_FORCE("_ZN2nn5swkbd14InlineKeyboard12SetInputTextERKNS0_9InputTextE", "inline keyboard: set text (the host does not show it, ignored)", void, h_ikb_SetText, void *kb, const void *t) { (void)kb; (void)t; }
+HLE_FORCE("_ZN2nn5swkbd14InlineKeyboard12SetCursorPosEi", "inline keyboard: set cursor (the host does not show it, ignored)", void, h_ikb_SetCursor, void *kb, int pos) { (void)kb; (void)pos; }
+HLE_FORCE("_ZN2nn5swkbd14InlineKeyboard8GetImageEPvm", "inline keyboard image: none (returns false)", unsigned, h_ikb_GetImage, void *kb, void *buf, size_t n) { (void)kb; (void)buf; (void)n; return 0; }
+HLE_FORCE("_ZNK2nn5swkbd14InlineKeyboard13GetWindowSizeEPiS2_", "inline keyboard window size: 0 × 0", void, h_ikb_WinSize, const void *kb, int *w, int *h) { (void)kb; if (w) *w = 0; if (h) *h = 0; }

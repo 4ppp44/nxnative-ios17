@@ -117,7 +117,7 @@ int main(void) {
     atomic_store(&t.a->state, STATE_STOPPED);
     h_au_Close(out);
     int sig = atomic_load(&g_sig), after = atomic_load(&g_after_last), released = atomic_load(&t.released), failed = atomic_load(&t.failed);
-    printf("SPSC：追加/释放 %d/%d，事件 %d，最后释放后触发=%d，失败=%d\n", NBUF, released, sig, after, failed);
+    printf("SPSC: appended/released %d/%d, events %d, signaled after last release=%d, failed=%d\n", NBUF, released, sig, after, failed);
     free(t.scratch); free(t.sizes); free(t.data); free(t.bufs);
     return released != NBUF || failed || sig < 1 || !after;
 }

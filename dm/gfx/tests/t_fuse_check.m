@@ -10,7 +10,7 @@ uint64_t now_ns(void) { return bp_now(); }
 
 static int fail, count;
 #define EXPECT(name, want, got) do { uint64_t w = (want), v = (got); count++; \
-    printf("%s 期望 %llu → 真结果 %llu %s\n", name, (unsigned long long)w, \
+    printf("%s expected %llu → got %llu %s\n", name, (unsigned long long)w, \
            (unsigned long long)v, w == v ? "✓" : "✗"); fail += w != v; } while (0)
 
 static void check_color(int blue, const prog_t *pg, tex_t t[4]) {
@@ -28,12 +28,12 @@ static void check_color(int blue, const prog_t *pg, tex_t t[4]) {
     fz_snap_take(&dw, NULL);
     mtl_sub_begin(); rp_begin_ex(1); rp_end();
     uint64_t f = mtl_sub_commit();
-    EXPECT("GPU 完成", 1, mtl_wait(f, 5000000000ull));
-    EXPECT(blue ? "负对照：蓝色合并结果 vs 红色普通结果，确实比到不同附件" : "物理 c3 → 逻辑 c0，确实比到同一红色附件",
+    EXPECT("GPU done", 1, mtl_wait(f, 5000000000ull));
+    EXPECT(blue ? "negative control: blue merged result vs red plain result, really compared as different attachments" : "physical c3 → logical c0, really compared as the same red attachment",
            1, blue ? g_fzc_diff - diff : g_fzc_same - same);
-    EXPECT("本例恰好登记一个比对，不漏报也不重复", 1, g_fzc_same - same + g_fzc_diff - diff);
-    EXPECT("结束后保持后通道逻辑目标", 1, R.rt.n == 1 && R.rt.color[0] == &t[3]);
-    EXPECT("快照释放", 0, g_nfzs);
+    EXPECT("exactly one comparison recorded for this case, none missed or duplicated", 1, g_fzc_same - same + g_fzc_diff - diff);
+    EXPECT("the later pass's logical target is kept afterwards", 1, R.rt.n == 1 && R.rt.color[0] == &t[3]);
+    EXPECT("snapshot released", 0, g_nfzs);
 }
 
 int main(void) { @autoreleasepool {
@@ -51,5 +51,5 @@ int main(void) { @autoreleasepool {
     for (int i = 0; i < 4; i++) { t[i].magic = MAGIC('T', 'E', 'X', 0); t[i].serial = 101 + i; t[i].d.width = t[i].d.height = 16;
         t[i].d.depth = t[i].d.levels = t[i].d.samples = 1; t[i].d.target = NVN_TEXTURE_TARGET_2D; t[i].d.format = NVN_FORMAT_RGBA8; }
     check_color(0, &pg, t); check_color(1, &pg, t);
-    printf("== %d 项，失败 %d ==\n", count, fail); return fail != 0;
+    printf("== %d checks, %d failed ==\n", count, fail); return fail != 0;
 } }

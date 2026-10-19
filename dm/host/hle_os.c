@@ -63,9 +63,9 @@ int dm_detclock_enabled(void) { return detclock_cfg() && atomic_load(&g_gdet_on)
 static void det_on_uimsg(const char *cat, const char *act, const char *arg) {
     (void)arg; if (strcmp(cat, "FrontEndNavigation") || strcmp(act, "ToGame")) return;
     uint64_t cur = atomic_load(&g_gdet);
-    if (cur >= DET_TOGAME_NS) { LOG("【红】DM_DETCLOCK：进局时客体时钟 %llu ≥ 对齐值 2^52，不回拨（对齐未生效）", (unsigned long long)cur); return; }
+    if (cur >= DET_TOGAME_NS) { LOG("[RED] DM_DETCLOCK: guest clock %llu ≥ alignment value 2^52 on entering a run, not turned back (alignment not applied)", (unsigned long long)cur); return; }
     atomic_store(&g_gdet, DET_TOGAME_NS);
-    LOG("DM_DETCLOCK：进局（ToGame）客体时钟对齐到 2^52 ns（前跳 %.3f s）", (DET_TOGAME_NS - cur) / 1e9);
+    LOG("DM_DETCLOCK: on entering a run (ToGame) the guest clock is aligned to 2^52 ns (jumped forward %.3f s)", (DET_TOGAME_NS - cur) / 1e9);
 }
 void dm_guest_frame_tick(void) {
     crash_watch_frame();
@@ -74,7 +74,7 @@ void dm_guest_frame_tick(void) {
     if (!atomic_load(&g_gdet_on)) {
         atomic_store(&g_gdet, wall_guest_ns()); atomic_store(&g_gdet_on, 1);
         void uimsg_subscribe(void (*)(const char *, const char *, const char *)); uimsg_subscribe(det_on_uimsg);
-        LOG("DM_DETCLOCK：首次出图起客体时钟按出图推进，步长 %llu ns；进局时对齐到 2^52 ns", (unsigned long long)g_gdet_step); return;
+        LOG("DM_DETCLOCK: from the first present on, the guest clock advances by presents, step %llu ns; aligned to 2^52 ns on entering a run", (unsigned long long)g_gdet_step); return;
     }
     if (!atomic_load(&g_gfz)) { atomic_fetch_add(&g_gdet, g_gdet_step); dm_guest_clock_advanced(); }
 }
@@ -99,7 +99,7 @@ uint64_t dm_entropy64(void) {
     if (!detclock_cfg()) return ((uint64_t)arc4random() << 32) | arc4random();
     uint64_t z = atomic_fetch_add(&g_detrng, 0x9E3779B97F4A7C15ull) + 0x9E3779B97F4A7C15ull;
     z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull; z = (z ^ (z >> 27)) * 0x94D049BB133111EBull; z ^= z >> 31;
-    uint64_t n = atomic_fetch_add(&g_detrng_n, 1) + 1; if (n == 1 || n % 1000 == 0) LOG("DM_DETCLOCK：确定熵第 %llu 次", (unsigned long long)n);
+    uint64_t n = atomic_fetch_add(&g_detrng_n, 1) + 1; if (n == 1 || n % 1000 == 0) LOG("DM_DETCLOCK: deterministic entropy call %llu", (unsigned long long)n);
     return z;
 }
 HLE("getentropy", int, g_getentropy, void *p, size_t n) {
@@ -122,11 +122,11 @@ static void sa_init(void) {
     module_t *ms = NULL; for (int i = 0; i < g_nmod; i++) if (!strcmp(g_mod[i].name, "sdk")) ms = &g_mod[i];
     g_sa_alloc = ms ? module_sym(ms, "_ZN2nn3mem17StandardAllocator8AllocateEm") : NULL;
     g_sa_alloc_al = ms ? module_sym(ms, "_ZN2nn3mem17StandardAllocator8AllocateEmm") : NULL;
-    if (!g_sa_alloc || !g_sa_alloc_al) die("SDK 里找不到 StandardAllocator::Allocate");
+    if (!g_sa_alloc || !g_sa_alloc_al) die("StandardAllocator::Allocate not found in the SDK");
     g_sa_big_align = !strcmp(dm_main_build(), DM_SENTINELS_110_BUILD);
-    if (g_sa_big_align) LOG("StandardAllocator::Allocate：本构建 ≥ 64 KB 的分配按 64 KB 对齐（显存池存储，见 hle_os.c）");
+    if (g_sa_big_align) LOG("StandardAllocator::Allocate: in this build allocations ≥ 64 KB are 64 KB aligned (memory pool storage, see hle_os.c)");
 }
-HLE_FORCE("_ZN2nn3mem17StandardAllocator8AllocateEm", "原样转调 SDK；十三机兵防卫圈 1.10 的 ≥ 64 KB 分配按 64 KB 对齐（显存池起点）", void *, h_mem_SAAllocate, void *self, size_t size) {
+HLE_FORCE("_ZN2nn3mem17StandardAllocator8AllocateEm", "passed straight to the SDK; 13 Sentinels: Aegis Rim 1.10 allocations ≥ 64 KB are 64 KB aligned (memory pool start)", void *, h_mem_SAAllocate, void *self, size_t size) {
     pthread_once(&g_sa_once, sa_init);
     return g_sa_big_align && size >= 0x10000 ? g_sa_alloc_al(self, size, 0x10000) : g_sa_alloc(self, size);
 }

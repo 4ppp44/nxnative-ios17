@@ -90,8 +90,8 @@ if sys.argv[2] == '--fn':       # sdis.py <image> --fn 0xaddr...  start of the c
     st = fn_starts()
     for a in sys.argv[3:]:
         a = int(a, 16); k = bisect.bisect_right(st, a) - 1
-        if k < 0 or k + 1 >= len(st): print(f'{a:#x} 不在函数表'); continue   # Before the first function / after the last function (e.g. the rewrite area): report it on its own, without dragging down the whole batch
-        print(f'{a:#x} 函数 {st[k]:#x} +{a - st[k]:#x}  下一函数 {st[k + 1]:#x}')
+        if k < 0 or k + 1 >= len(st): print(f'{a:#x} not in the function table'); continue   # Before the first function / after the last function (e.g. the rewrite area): report it on its own, without dragging down the whole batch
+        print(f'{a:#x} function {st[k]:#x} +{a - st[k]:#x}  next function {st[k + 1]:#x}')
     sys.exit()
 if sys.argv[2] == '--find':
     for n, (v, sz) in sorted(defs.items(), key=lambda x: x[1]):

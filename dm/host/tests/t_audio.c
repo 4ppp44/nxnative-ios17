@@ -15,21 +15,21 @@ int main(void) {
     char out[64], ev[64]; uint8_t prm[16]; gbuf b[3]; static int16_t pcm[3][4800 * 2];
     h_au_InitParam(prm);
     if (h_au_Open(out, ev, NULL, prm)) return 1;
-    if (h_au_Ch(out) != 2 || h_au_Rate(out) != 48000 || h_au_State(out) != STATE_STOPPED) { puts("FAIL 参数"); return 1; }
+    if (h_au_Ch(out) != 2 || h_au_Rate(out) != 48000 || h_au_State(out) != STATE_STOPPED) { puts("FAIL parameters"); return 1; }
     for (int i = 0; i < 3; i++) { h_au_SetBuf(&b[i], pcm[i], sizeof pcm[i], sizeof pcm[i]); if (!h_au_Append(out, &b[i])) return 1; }
-    if (h_au_Released(out)) { puts("FAIL 未开始就有释放"); return 1; }
+    if (h_au_Released(out)) { puts("FAIL buffers released before start"); return 1; }
     uint64_t t0 = now_ns(); h_au_Start(out);
     int got = 0, fail = 0;
     while (got < 3 && now_ns() - t0 < 10000000000ull) {
         gbuf *r = h_au_Released(out);
         if (!r) { usleep(1000); continue; }
         int ok = r == &b[got];
-        printf("释放 #%d：期望 块%d 按序 → 真结果 块%ld %s\n", got, got, (long)(r - b), ok ? "✓" : "✗");
+        printf("release #%d: expected block %d in order → got block %ld %s\n", got, got, (long)(r - b), ok ? "✓" : "✗");
         fail |= !ok; got++;
     }
     h_au_Close(out);
     int sig1 = atomic_load_explicit(&g_sig, memory_order_acquire);
-    printf("释放 %d/3，事件触发 %d 次（期望 3）\n", got, sig1);
+    printf("released %d/3, event signaled %d times (expected 3)\n", got, sig1);
     if (fail || got != 3 || sig1 != 3) return 1;
 
     // Scenario 2: the real audio output sink (PCM all 0, inaudible) plays 6 blocks of 100 ms each, pausing at 150 ms (app to background / incoming call) and resuming at 350 ms.
@@ -52,6 +52,6 @@ int main(void) {
     h_au_Close(out2);
     int sig2 = atomic_load_explicit(&g_sig, memory_order_acquire);
     int ok2 = got2 == 6 && order_ok && sig2 == 6 && total > 520;
-    printf("暂停 / 恢复：释放 %d/6 按序=%d 事件 %d（期望 6）总时长下限 520 ms，真结果 %.0f ms %s\n", got2, order_ok, sig2, total, ok2 ? "✓" : "✗");
+    printf("suspend / resume: released %d/6 in order=%d events %d (expected 6), total duration lower bound 520 ms, got %.0f ms %s\n", got2, order_ok, sig2, total, ok2 ? "✓" : "✗");
     return !ok2;
 }

@@ -2,7 +2,7 @@
 
 This document lists what each kind of NVN (the Switch's native graphics interface) object and command lands on in Metal within D2R Mobile's graphics layer. For the overall structure of the graphics layer see [README.md](README.md).
 
-Scope: the 216 NVN functions that have call sites in the game's main program (listed in `nvn/nvn_slots.tsv`). The remaining 307 are connected to a red-reporting stub that, when called, prints `【红】NVN 未实现被调用：名字` in the log ("[red] unimplemented NVN function called: name").
+Scope: the 216 NVN functions that have call sites in the game's main program (listed in `nvn/nvn_slots.tsv`). The remaining 307 are connected to a red-reporting stub that, when called, prints `[RED] NVN unimplemented function called: <name>` in the log.
 
 Two conventions that run through the whole table:
 

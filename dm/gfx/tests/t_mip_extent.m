@@ -11,7 +11,7 @@ module_t g_mod[MAX_MOD]; int g_nmod;
 void svc_thread_dump(void) {}
 uint64_t now_ns(void) { return bp_now(); }
 static int cases,failed; static prog_t colour_pg,depth_pg;
-#define EXPECT(n,w,v) do { uint64_t a=(w),b=(v);cases++;printf("%s 期望 %llu → 真结果 %llu %s\n",n,(unsigned long long)a,(unsigned long long)b,a==b?"✓":"✗");failed+=a!=b;}while(0)
+#define EXPECT(n,w,v) do { uint64_t a=(w),b=(v);cases++;printf("%s expected %llu → got %llu %s\n",n,(unsigned long long)a,(unsigned long long)b,a==b?"✓":"✗");failed+=a!=b;}while(0)
 static tex_t make_tex(int w,int h,int levels,int format) {
     static uint64_t ser=90000; tex_t t={.magic=MAGIC('T', 'E', 'X', 0), .serial =ser++};t.d.width=w;t.d.height=h;
     t.d.depth=t.d.samples=1;t.d.levels=levels;t.d.target=NVN_TEXTURE_TARGET_2D;t.d.format=format;return t;
@@ -20,7 +20,7 @@ typedef struct { NVNcommandBuffer cb; pool_t pool; void *mem; } recording;
 static recording begin(void) {
     recording r={0};if(posix_memalign(&r.mem,getpagesize(),65536))abort();memset(r.mem,0,65536);
     r.pool.mem=r.mem;r.pool.size=65536;mtl_pool_add(r.mem,65536);
-    EXPECT("NVN command初始化",1,h_nvnCommandBufferInitialize(&r.cb,NULL));
+    EXPECT("NVN command buffer init",1,h_nvnCommandBufferInitialize(&r.cb,NULL));
     h_nvnCommandBufferAddCommandMemory(&r.cb,(const NVNmemoryPool *)&r.pool,0,65536);h_nvnCommandBufferBeginRecording(&r.cb);return r;
 }
 static void target(recording *r,const tex_t *t,int lv,int slot,const tex_t *other,int other_lv,int depth) {
@@ -35,7 +35,7 @@ static void target(recording *r,const tex_t *t,int lv,int slot,const tex_t *othe
 static void finish(recording *r) {
     NVNcommandHandle h=h_nvnCommandBufferEndRecording(&r->cb);state_reset();memset(&R,0,sizeof R);
     mtl_sub_begin();mtl_exec((const uint8_t *)h);
-    int done=mtl_wait(mtl_sub_commit(),5000000000ull);EXPECT("生产GPU完成",1,done);if(!done)abort();EXPECT("提交反馈无错误",0,mtl_last_commit_error());
+    int done=mtl_wait(mtl_sub_commit(),5000000000ull);EXPECT("production GPU done",1,done);if(!done)abort();EXPECT("no error in commit feedback",0,mtl_last_commit_error());
     mtl_pool_del(r->mem);free(r->mem);
 }
 static void seed(const tex_t *t) {
@@ -47,14 +47,14 @@ static void seed(const tex_t *t) {
         else {p.depthAttachment.texture=m;p.depthAttachment.level=l;p.depthAttachment.loadAction=MTLLoadActionClear;p.depthAttachment.storeAction=MTLStoreActionStore;p.depthAttachment.clearDepth=.75;}
         if(t->d.format==NVN_FORMAT_DEPTH32F_STENCIL8){p.stencilAttachment.texture=m;p.stencilAttachment.level=l;p.stencilAttachment.loadAction=MTLLoadActionClear;p.stencilAttachment.storeAction=MTLStoreActionStore;p.stencilAttachment.clearStencil=0;}
         [[cb renderCommandEncoderWithDescriptor:p] endEncoding];}
-    [cb commit];[cb waitUntilCompleted];EXPECT("独立Metal种子完成",4,cb.status);
+    [cb commit];[cb waitUntilCompleted];EXPECT("standalone Metal seed done",4,cb.status);
 }
 static uint8_t *read_mip(const tex_t *t,int lv,int w,int h,int bpp) {
     NSUInteger row=(w*bpp+15)&~15u;id<MTLBuffer> buf=[g_dev newBufferWithLength:row*h options:MTLResourceStorageModeShared];
     id<MTLCommandBuffer> cb=[g_q commandBuffer];id<MTLBlitCommandEncoder> b=[cb blitCommandEncoder];
     id<MTLTexture> src=tex_mtl(t);MTLBlitOption opt=t->d.format==NVN_FORMAT_DEPTH32F_STENCIL8?(bpp==1?MTLBlitOptionStencilFromDepthStencil:MTLBlitOptionDepthFromDepthStencil):MTLBlitOptionNone;
     [b copyFromTexture:src sourceSlice:0 sourceLevel:lv sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(w,h,1)
-      toBuffer:buf destinationOffset:0 destinationBytesPerRow:row destinationBytesPerImage:row*h options:opt];[b endEncoding];[cb commit];[cb waitUntilCompleted];EXPECT("逐纹素读回完成",4,cb.status);
+      toBuffer:buf destinationOffset:0 destinationBytesPerRow:row destinationBytesPerImage:row*h options:opt];[b endEncoding];[cb commit];[cb waitUntilCompleted];EXPECT("per-texel readback done",4,cb.status);
     uint8_t *out=malloc(w*h*bpp);for(int y=0;y<h;y++)memcpy(out+y*w*bpp,(uint8_t *)buf.contents+y*row,w*bpp);return out;
 }
 static void save(const char *name,int lv,const uint8_t *out,int n) {
@@ -71,7 +71,7 @@ static void colour_check(const char *name,const tex_t *t,int lv,int kind,int dra
             if(in&&kind==2){int rx=5*(2*x+1)>=4*draw_w,by=5*(2*y+1)>=4*draw_h;
                 want[0]=rx?0:255;want[1]=rx?255:0;want[2]=by?255:0;}
             bad+=memcmp(out+4*(y*w+x),want,4)!=0;}
-        char label[128];snprintf(label,sizeof label,"%s lv%d %d纹素",name,l,w*h);EXPECT(label,0,bad);save(name,l,out,w*h*4);free(out);}
+        char label[128];snprintf(label,sizeof label,"%s lv%d %d texels",name,l,w*h);EXPECT(label,0,bad);save(name,l,out,w*h*4);free(out);}
 }
 static void colour_case(const char *name,int lv,int sc,int clear_only,int slot,int mrt) {
     static const int W[]={8,4,2,1},H[]={6,3,1,1};int w=W[lv],h=H[lv];tex_t t=make_tex(8,6,4,NVN_FORMAT_RGBA8),other=make_tex(8,6,4,NVN_FORMAT_RGBA8);
@@ -82,10 +82,10 @@ static void colour_case(const char *name,int lv,int sc,int clear_only,int slot,i
     if(sc==3)h_nvnCommandBufferSetScissor(&r.cb,1,1,2,1);
     if(clear_only){float red[4]={1,0,0,1};h_nvnCommandBufferClearColor(&r.cb,slot,red,15);}
     else {h_nvnCommandBufferBindProgram(&r.cb,(const NVNprogram *)&colour_pg,3);h_nvnCommandBufferDrawArrays(&r.cb,NVN_DRAW_PRIMITIVE_TRIANGLES,0,3);}
-    finish(&r);NSUInteger pre_w,pre_h;rt_dims(&pre_w,&pre_h);EXPECT("预检查首目标selected宽上界",W[lv],pre_w);EXPECT("预检查首目标selected高上界",H[lv],pre_h);
-    if(sc!=3||!clear_only){EXPECT("实际pass有效宽",w,g_pass.tw);EXPECT("实际pass有效高",h,g_pass.th);}
+    finish(&r);NSUInteger pre_w,pre_h;rt_dims(&pre_w,&pre_h);EXPECT("precheck: first target selected width upper bound",W[lv],pre_w);EXPECT("precheck: first target selected height upper bound",H[lv],pre_h);
+    if(sc!=3||!clear_only){EXPECT("actual pass effective width",w,g_pass.tw);EXPECT("actual pass effective height",h,g_pass.th);}
     colour_check(name,&t,lv,clear_only?(sc==3?0:1):2,w,h,sc==3);
-    if(mrt)colour_check("MRT未写附件",&other,-1,0,0,0,0);
+    if(mrt)colour_check("MRT_unwritten_attachment",&other,-1,0,0,0,0);
 }
 static void plane_case(const char *name,int stencil,int clear_only) {
     tex_t t=make_tex(8,6,4,stencil?NVN_FORMAT_DEPTH32F_STENCIL8:NVN_FORMAT_DEPTH32F);seed(&t);recording r=begin();target(&r,&t,1,0,NULL,0,1);
@@ -94,12 +94,12 @@ static void plane_case(const char *name,int stencil,int clear_only) {
         p_bind_state st={.kind=5};memcpy(st.bytes,&ds,sizeof ds);*REC(&r.cb,OP_BIND_STATE,p_bind_state)=st;
         if(stencil)for(int k=0;k<3;k++)*REC(&r.cb,OP_STENCIL,p_stencil)=(p_stencil){.face=3,.which=k,.value_mask=255,.mask=255,.ref=0x5a};
         h_nvnCommandBufferBindProgram(&r.cb,(const NVNprogram *)&depth_pg,1);h_nvnCommandBufferDrawArrays(&r.cb,NVN_DRAW_PRIMITIVE_TRIANGLES,0,3);}
-    finish(&r);EXPECT("depth/stencil有效宽",4,g_pass.tw);EXPECT("depth/stencil有效高",3,g_pass.th);
+    finish(&r);EXPECT("depth/stencil effective width",4,g_pass.tw);EXPECT("depth/stencil effective height",3,g_pass.th);
     static const int W[]={8,4,2,1},H[]={6,3,1,1};for(int l=0;l<4;l++){int n=W[l]*H[l],bad=0;uint8_t *b=read_mip(&t,l,W[l],H[l],stencil?1:4);
         for(int i=0;i<n;i++)if(stencil)bad+=b[i]!=(l==1?0x5a:0);else bad+=((float *)b)[i]!=(l==1?.25f:.75f);
-        EXPECT("选中plane逐纹素/未选级不变",0,bad);save(name,l,b,n*(stencil?1:4));free(b);}
+        EXPECT("selected plane per texel / unselected levels unchanged",0,bad);save(name,l,b,n*(stencil?1:4));free(b);}
     if(stencil)for(int l=0;l<4;l++){int n=W[l]*H[l],bad=0;uint8_t *b=read_mip(&t,l,W[l],H[l],4);
-        for(int i=0;i<n;i++)bad+=((float *)b)[i]!=.75f;EXPECT("模板操作不改深度plane",0,bad);
+        for(int i=0;i<n;i++)bad+=((float *)b)[i]!=.75f;EXPECT("stencil ops leave the depth plane unchanged",0,bad);
         char label[96];snprintf(label,sizeof label,"%s_preserved_depth",name);save(label,l,b,n*4);free(b);}
 }
 int main(int argc,char **argv){@autoreleasepool{
@@ -110,12 +110,12 @@ int main(int argc,char **argv){@autoreleasepool{
     for(int i=0;i<2;i++){NvProg *p=[NvProg new];p->sh[0]=[NvShader new];p->sh[0]->fn=[lib newFunctionWithName:@"v"];
         if(!i){p->sh[1]=[NvShader new];p->sh[1]->fn=[lib newFunctionWithName:@"f"];p->sh[1]->stage=1;}
         (i?&depth_pg:&colour_pg)->serial=80000+i;serial_put(80000+i,p);}
-    if(stencil_only){plane_case("stencil_only",1,0);EXPECT("现有only-stencil模式",3,g_enc_mode);EXPECT("仅模板不挂深度",1,g_pass.hs&&!g_pass.hd);}
+    if(stencil_only){plane_case("stencil_only",1,0);EXPECT("existing stencil-only mode",3,g_enc_mode);EXPECT("stencil-only attaches no depth",1,g_pass.hs&&!g_pass.hd);}
     else if(argc>1&&!strcmp(argv[1],"--default"))colour_case("default",1,0,0,0,0);
     else if(argc>1&&!strcmp(argv[1],"--oversized"))colour_case("oversized",1,2,0,0,0);
     else {for(int lv=0;lv<4;lv++){char name[64];snprintf(name,sizeof name,"bounded_L%d",lv);colour_case(name,lv,1,0,0,0);
             snprintf(name,sizeof name,"clear_L%d",lv);colour_case(name,lv,1,1,0,0);}
         colour_case("partial_draw",1,3,0,0,0);colour_case("partial_clear_reject",1,3,1,0,0);colour_case("slot1_clear",1,1,1,1,0);
         if(argc==1){colour_case("default",1,0,0,0,0);colour_case("oversized",1,2,0,0,0);colour_case("MRT_min",0,0,0,0,1);plane_case("depth",0,0);plane_case("stencil",1,0);plane_case("depth_clear",0,1);plane_case("stencil_clear",1,1);}}
-    printf("== %d 项，失败 %d ==\n",cases,failed);return failed!=0;
+    printf("== %d checks, %d failed ==\n",cases,failed);return failed!=0;
 }}

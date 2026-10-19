@@ -19,12 +19,12 @@ static int run(uint32_t klen, int ops) {
         bad |= (int)m.n != live;
     }
     for (uint32_t x = 0; x < KS && !bad; x++) { memset(k, 0xab, sizeof k); memcpy(k, &x, 4); bad |= nvn_hm_get(&m, k) != ref[x]; }   // full comparison of the final state
-    printf("键长 %2u：%d 次随机操作 + 终态 %d 键全量对照 期望全等 → 真结果 %s（终态 %u 项、容量 %u）\n", klen, ops, KS, bad ? "不等 ✗" : "全等 ✓", m.n, m.cap);
+    printf("key length %2u: %d random operations + full comparison of %d keys at the end, expected identical → got %s (%u entries at the end, capacity %u)\n", klen, ops, KS, bad ? "different ✗" : "identical ✓", m.n, m.cap);
     free(m.keys); free(m.vals);
     return bad;
 }
 int main(void) {
     int fail = run(8, 190000) + run(20, 190000);
-    printf("== 2 项，失败 %d ==\n", fail);
+    printf("== 2 checks, %d failed ==\n", fail);
     return fail != 0;
 }

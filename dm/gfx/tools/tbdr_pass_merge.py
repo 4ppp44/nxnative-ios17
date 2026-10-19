@@ -22,5 +22,5 @@ for a,b in zip(order,order[1:]):
         hazard = bool(sers & between[b])                       # the later pass samples its own attachment as a texture: cannot merge
         bb=sum(x[5] for x in passes[b])
         if not hazard: n+=1; sv+=2*bb; ex.append((a,b,bb))
-print('帧 %d：通道 %d 个；相邻同附件且后者全读入、且后者不采样这些附件的切分 %d 处，合并可省 %.1f MB/帧（一读一写）'%(FA,len(order),n,sv/1e6))
-for a,b,bb in ex[:12]: print('  %d→%d：%s  %.1f MB'%(a,b,' '.join('%s:ser%d'%(x[0],x[1]) for x in passes[b]),bb/1e6))
+print('frame %d: %d passes; splits between adjacent passes with the same attachments where the later pass loads them all and does not sample them: %d; merging saves %.1f MB/frame (one load and one store)'%(FA,len(order),n,sv/1e6))
+for a,b,bb in ex[:12]: print('  %d→%d: %s  %.1f MB'%(a,b,' '.join('%s:ser%d'%(x[0],x[1]) for x in passes[b]),bb/1e6))

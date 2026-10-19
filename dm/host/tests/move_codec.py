@@ -40,6 +40,6 @@ for dx,dy,direction in [(1,0,512),(0,1,768),(-1,0,0),(0,-1,256)]:
    assert abs(a-mag/31)<1e-7 and f==run,('decode',amp,mag,a,f,run)
    n+=1
   assert pair[0]^pair[1]==0x8000
- print(f'轴({dx},{dy}) 方向码{direction}：7幅度×2走跑位，编解码全同')
-print('原映像SHA256',hashlib.sha256(b).hexdigest())
-print(f'ORIGINAL_MOVE_CODEC OK {n}/{n}；28对只差bit15，零/微幅量化保持0；未测速度/停杆/真实动作')
+ print(f'axis ({dx},{dy}) direction code {direction}: 7 magnitudes × 2 walk/run bits, encode and decode all match')
+print('original image SHA256',hashlib.sha256(b).hexdigest())
+print(f'ORIGINAL_MOVE_CODEC OK {n}/{n}; the 28 pairs differ only in bit15, zero/tiny magnitudes quantize to 0; speed / stick release / real movement not tested')

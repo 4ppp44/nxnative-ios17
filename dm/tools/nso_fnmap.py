@@ -16,7 +16,7 @@ class Img:
         m0 = struct.unpack_from('<I', self.b, 4)[0]
         ehs = m0 + struct.unpack_from('<i', self.b, m0 + 16)[0]
         _, penc, cenc, tenc = self.b[ehs:ehs + 4]
-        assert (penc, cenc, tenc) == (0x1b, 0x03, 0x3b), f'eh_frame_hdr 编码 {penc:#x} {cenc:#x} {tenc:#x}'
+        assert (penc, cenc, tenc) == (0x1b, 0x03, 0x3b), f'eh_frame_hdr encodings {penc:#x} {cenc:#x} {tenc:#x}'
         n = struct.unpack_from('<I', self.b, ehs + 8)[0]
         fn = {}
         for i in range(n):
@@ -85,32 +85,32 @@ def main():
     for s, h in new.hash.items(): by_new[h].append(s)
     by_old = collections.Counter(old.hash.values())
     exact = {s: by_new[h][0] for s, h in old.hash.items() if by_old[h] == 1 and len(by_new.get(h, ())) == 1}
-    print(f'函数 旧 {len(old.starts)} 新 {len(new.starts)}，全同且唯一 {len(exact)} | functions old {len(old.starts)} new {len(new.starts)}, unique exact matches {len(exact)}')
+    print(f'functions old {len(old.starts)} new {len(new.starts)}, unique exact matches {len(exact)}')
     ex_old = sorted(exact)
     def near(f):
-        if f in exact: return exact[f], 1.0, '全同 | exact'
+        if f in exact: return exact[f], 1.0, 'exact'
         i = bisect.bisect_left(ex_old, f); lo = exact[ex_old[i - 1]] if i else 0; hi = exact[ex_old[i]] if i < len(ex_old) else 1 << 62
         a = old.mask[f // 4:(f + old.size[f]) // 4].tolist(); best = (0, None)
         for g in new.starts[bisect.bisect_right(new.starts, lo):bisect.bisect_left(new.starts, hi)]:
             if abs(new.size[g] - old.size[f]) > max(64, old.size[f] // 4): continue
             r = difflib.SequenceMatcher(None, a, new.mask[g // 4:(g + new.size[g]) // 4].tolist(), autojunk=False).ratio()
             if r > best[0]: best = (r, g)
-        return best[1], best[0], f'近似 | near {best[0]:.3f}'
+        return best[1], best[0], f'near {best[0]:.3f}'
     for arg in sys.argv[3:]:
         off = int(arg, 16); f = old.func(off)
         if f is not None:
             g, r, how = near(f)
-            if g is None: print(f'【红】{off:#x}：函数 {f:#x} 在新构建里找不到 | function not found in the new build'); continue
+            if g is None: print(f'[RED] {off:#x}: function {f:#x} not found in the new build'); continue
             n = g + off - f; same = old.mask[off // 4] == new.mask[n // 4]
-            print(f'{"" if same and r == 1.0 else "【红】" if not same else ""}{off:#x} → {n:#x}  代码 | code  {how}  旧函数 | old fn {f:#x}+{off - f:#x} → 新 | new {g:#x}' + ('' if same else f'  指令不同 | instruction differs {old.u32(off):08x} / {new.u32(n):08x}'))
+            print(f'{"" if same and r == 1.0 else "[RED] " if not same else ""}{off:#x} → {n:#x}  code  {how}  old fn {f:#x}+{off - f:#x} → new {g:#x}' + ('' if same else f'  instruction differs {old.u32(off):08x} / {new.u32(n):08x}'))
             continue
         refs = adrp_refs(old, off); got = collections.Counter(); used = 0
         for a, b in refs:
             fa = old.func(a)
             if fa is None or fa not in exact: continue
             g = exact[fa]; got[pair_addr(new, g + a - fa, g + b - fa)] += 1; used += 1
-        if not got: print(f'【红】{off:#x}：数据，旧构建引用 {len(refs)} 处，都不在全同函数里 | data, {len(refs)} references in the old build, none in an exact-match function'); continue
+        if not got: print(f'[RED] {off:#x}: data, {len(refs)} references in the old build, none in an exact-match function'); continue
         (n, k), = got.most_common(1)
-        print(f'{"" if len(got) == 1 else "【红】"}{off:#x} → {n:#x}  数据 | data  {k}/{used} 处引用一致（旧构建共 {len(refs)} 处） | references agree ({len(refs)} in the old build)' + ('' if len(got) == 1 else f'  不一致 | disagree {dict(got)}'))
+        print(f'{"" if len(got) == 1 else "[RED] "}{off:#x} → {n:#x}  data  {k}/{used} references agree ({len(refs)} in the old build)' + ('' if len(got) == 1 else f'  disagree {dict(got)}'))
 
 if __name__ == '__main__': main()

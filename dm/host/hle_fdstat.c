@@ -26,9 +26,9 @@ static void *fdstat_main(void *arg) {
             else if (strstr(p, ".log") || strstr(p, "boot.txt") || strstr(p, ".jsonl") || strstr(p, ".tsv")) logf++;
             else if (strstr(p, "/Caches/") || strstr(p, "/cache/") || strstr(p, ".metallib") || strstr(p, "/tmp/") || strstr(p, "/var/folders/")) cache++;
             else { other++; if (sk < 300) { const char *b = strrchr(p, '/'); sk += snprintf(sample + sk, sizeof sample - sk, " %s", b ? b + 1 : p); } } }
-        char line[1024]; snprintf(line, sizeof line, "在用 %d（最大号 %d，软上限 %llu）：资源档 %d、存档 %d、日志 %d、缓存 / 临时 %d、设备 %d、套接字 %d、管道 %d、其它内核对象 %d、其它文件 %d%s%s；其中目录 %d",
-                                   total, hi, (unsigned long long)rl.rlim_cur, romfs, save, logf, cache, dev, sock, pipe_, kq, other, other ? "：" : "", other ? sample : "", dir);
-        LOG("描述符 第 %u 次（每 %d 秒）%s%s", round, every, line, strcmp(line, prev) ? "" : "（同上次）"); strlcpy(prev, line, sizeof prev);
+        char line[1024]; snprintf(line, sizeof line, "in use %d (highest %d, soft limit %llu): resource archives %d, save data %d, logs %d, cache / temp %d, devices %d, sockets %d, pipes %d, other kernel objects %d, other files %d%s%s; of these directories %d",
+                                   total, hi, (unsigned long long)rl.rlim_cur, romfs, save, logf, cache, dev, sock, pipe_, kq, other, other ? ":" : "", other ? sample : "", dir);
+        LOG("descriptors round %u (every %d s) %s%s", round, every, line, strcmp(line, prev) ? "" : " (same as last time)"); strlcpy(prev, line, sizeof prev);
     }
     return NULL;
 }

@@ -2,7 +2,7 @@
 //   unit +0x38 path → path +0x20 room (for object / item class units the "path" is a different struct, with the room at +0) → room +0x18 → +0x90 level → level +0x1f8 level id.
 // Every step can be NULL and must be null-checked one by one: during the act-change loading screen the client player has a path but no room.
 // Previously various places read four levels in one go, rd(rd(rd(rd(u + 0x38) + 0x20) + 0x18) + 0x90); rd only guards address 0, so with a NULL room it went on to read address 0x18 →
-// sig=11 addr=0x18 on both real device and Mac (in a rift, tapping 「继续」(Continue) after dying in another act's map, during those few act-change loading frames). Unit test tests/t_unit_level.c.
+// sig=11 addr=0x18 on both real device and Mac (in a rift, tapping "Continue" after dying in another act's map, during those few act-change loading frames). Unit test tests/t_unit_level.c.
 #ifndef DM_UNIT_H
 #define DM_UNIT_H
 #include <stdint.h>

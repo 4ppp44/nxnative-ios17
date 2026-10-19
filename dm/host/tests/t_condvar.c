@@ -56,13 +56,13 @@ int main(void) {
 #ifdef DM_TEST_CV_OLD_ORDER
     // Negative control: the old order always loses the wakeup (R reads key 0 and does not send 0x1D, and nobody wakes W after it is queued)
     int ok = !done && atomic_load(&g_rstate) == 3;
-    printf("%s 旧顺序负对照：W %s，R 状态 %d（期望 W 不醒、R 未发 0x1D 即完成）\n", ok ? "✓" : "✗", done ? "被唤醒" : "10 秒未醒", atomic_load(&g_rstate));
-    printf(ok ? "全过：1/1\n" : "失败：负对照没判出丢唤醒（判据无效）\n");
+    printf("%s old-order negative control: W %s, R state %d (expected: W not woken, R finishes without sending 0x1D)\n", ok ? "✓" : "✗", done ? "woken" : "not woken in 10 s", atomic_load(&g_rstate));
+    printf(ok ? "all passed: 1/1\n" : "FAILED: the negative control did not detect the lost wakeup (the criterion is useless)\n");
 #else
     int ok = done && g_wret == 0 && g_wlock_after == g_wtag && atomic_load(&g_key) == 0;
-    printf("%s 现行顺序：W %s 返回 %lld，锁字 %#x（期望 W 标签 %#x），条件键 %u（期望 0），R 状态 %d\n", ok ? "✓" : "✗",
-           done ? "被唤醒" : "2 秒未醒", (long long)g_wret, g_wlock_after, g_wtag, atomic_load(&g_key), atomic_load(&g_rstate));
-    printf(ok ? "全过：1/1\n" : "失败：1/1\n");
+    printf("%s current order: W %s returned %lld, lock word %#x (expected W tag %#x), condvar key %u (expected 0), R state %d\n", ok ? "✓" : "✗",
+           done ? "woken" : "not woken in 2 s", (long long)g_wret, g_wlock_after, g_wtag, atomic_load(&g_key), atomic_load(&g_rstate));
+    printf(ok ? "all passed: 1/1\n" : "FAILED: 1/1\n");
 #endif
     fflush(stdout); _exit(ok ? 0 : 1);
 }

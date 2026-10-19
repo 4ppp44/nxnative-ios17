@@ -36,8 +36,8 @@ static int near(px_t a, px_t b, int tol) {
 }
 
 static void report(const char *name, px_t want, px_t got, int ok) {
-    printf("  %-34s 期望 (%3d,%3d,%3d,%3d) → 真结果 (%3d,%3d,%3d,%3d)  %s\n", name,
-           want.r, want.g, want.b, want.a, got.r, got.g, got.b, got.a, ok ? "过" : "【不符】");
+    printf("  %-34s expected (%3d,%3d,%3d,%3d) → got (%3d,%3d,%3d,%3d)  %s\n", name,
+           want.r, want.g, want.b, want.a, got.r, got.g, got.b, got.a, ok ? "pass" : "[MISMATCH]");
     if (!ok) fails++;
 }
 
@@ -73,11 +73,11 @@ static px_t tri_expect(int i, int j) {
 static const char *fmt_name(mtlb_fmt f) { return f == MTLB_FMT_BGRA8 ? "BGRA8" : "RGBA8"; }
 
 static void test_clear(mtlb_ctx *ctx, mtlb_fmt fmt, uint8_t *buf) {
-    printf("[测试1 清屏纯红 %s %dx%d]\n", fmt_name(fmt), W, H);
+    printf("[test 1: clear to pure red %s %dx%d]\n", fmt_name(fmt), W, H);
     mtlb_rt *rt = mtlb_target(ctx, W, H, fmt);
     memset(buf, 0x5a, W * H * 4); /* Fill with garbage first, to prevent "passes even though nothing was written" */
     if (!rt || mtlb_clear(ctx, rt, 1, 0, 0, 1) || mtlb_readback(ctx, rt, buf, W * H * 4)) {
-        printf("  后端调用失败\n"); fails++; mtlb_target_free(rt); return;
+        printf("  backend call failed\n"); fails++; mtlb_target_free(rt); return;
     }
     px_t want = {255, 0, 0, 255};
     int bad = 0; px_t first_bad = {0};
@@ -86,26 +86,26 @@ static void test_clear(mtlb_ctx *ctx, mtlb_fmt fmt, uint8_t *buf) {
             px_t g = get_px(buf, fmt, x, y);
             if (!near(g, want, 0)) { if (!bad) first_bad = g; bad++; }
         }
-    printf("  全部 %d 像素逐个比：期望 (255,0,0,255) 全等 → 真结果 不符 %d 个%s\n", W * H, bad,
-           bad ? "【不符】" : "  过");
-    if (bad) { printf("  首个不符像素 (%d,%d,%d,%d)\n", first_bad.r, first_bad.g, first_bad.b, first_bad.a); fails++; }
+    printf("  all %d pixels compared one by one: expected all (255,0,0,255) → got %d mismatched%s\n", W * H, bad,
+           bad ? " [MISMATCH]" : "  pass");
+    if (bad) { printf("  first mismatched pixel (%d,%d,%d,%d)\n", first_bad.r, first_bad.g, first_bad.b, first_bad.a); fails++; }
     mtlb_target_free(rt);
 }
 
 static void test_triangle(mtlb_ctx *ctx, mtlb_fmt fmt, uint8_t *buf) {
-    printf("[测试2 黑底三色三角形 %s %dx%d，清屏+三角形两个 pass 同一帧]\n", fmt_name(fmt), W, H);
+    printf("[test 2: three-color triangle on black %s %dx%d, clear + triangle as two passes in one frame]\n", fmt_name(fmt), W, H);
     mtlb_rt *rt = mtlb_target(ctx, W, H, fmt);
     memset(buf, 0x5a, W * H * 4);
     if (!rt || mtlb_clear(ctx, rt, 0, 0, 0, 1) || mtlb_triangle(ctx, rt) ||
         mtlb_readback(ctx, rt, buf, W * H * 4)) {
-        printf("  后端调用失败\n"); fails++; mtlb_target_free(rt); return;
+        printf("  backend call failed\n"); fails++; mtlb_target_free(rt); return;
     }
     px_t clear = {0, 0, 0, 255};
 
     /* 1) The four corner points = clear color */
     const int corners[4][2] = {{0, 0}, {W - 1, 0}, {0, H - 1}, {W - 1, H - 1}};
     for (int k = 0; k < 4; k++) {
-        char name[64]; snprintf(name, sizeof name, "角点 (%d,%d) 清屏色", corners[k][0], corners[k][1]);
+        char name[64]; snprintf(name, sizeof name, "corner (%d,%d) clear color", corners[k][0], corners[k][1]);
         px_t g = get_px(buf, fmt, corners[k][0], corners[k][1]);
         report(name, clear, g, near(g, clear, 0));
     }
@@ -113,14 +113,14 @@ static void test_triangle(mtlb_ctx *ctx, mtlb_fmt fmt, uint8_t *buf) {
     /* 2) Centroid: NDC (0,-1/6) → pixel (128, 149.33); take pixel (128,149), which is not the clear color and ≈ the interpolated value */
     {
         px_t want = tri_expect(128, 149), g = get_px(buf, fmt, 128, 149);
-        report("重心 (128,149) 非清屏、≈1/3 混色", want, g, !near(g, clear, 0) && near(g, want, TOL));
+        report("centroid (128,149) not clear, ≈1/3 mix", want, g, !near(g, clear, 0) && near(g, want, TOL));
     }
 
     /* 3) Near the three vertices: vertex pixels v0(128,64) v1(64,192) v2(192,192), each sampled a few pixels inward toward the centroid */
     const struct { int x, y, ch; const char *name; } vs[3] = {
-        {128, 72, 0, "近上顶点 (128,72) 偏红"},
-        {72, 188, 1, "近左下顶点 (72,188) 偏绿"},
-        {183, 188, 2, "近右下顶点 (183,188) 偏蓝"},
+        {128, 72, 0, "near top vertex (128,72) reddish"},
+        {72, 188, 1, "near bottom-left vertex (72,188) greenish"},
+        {183, 188, 2, "near bottom-right vertex (183,188) bluish"},
     };
     for (int k = 0; k < 3; k++) {
         px_t want = tri_expect(vs[k].x, vs[k].y), g = get_px(buf, fmt, vs[k].x, vs[k].y);
@@ -141,22 +141,22 @@ static void test_triangle(mtlb_ctx *ctx, mtlb_fmt fmt, uint8_t *buf) {
             else if (dmin < -1.0) { n_out++; if (!near(g, clear, 0)) bad_out++; }
             else n_edge++;
         }
-    printf("  全图内侧 %d 像素：期望 ≈插值(±%d) → 真结果 不符 %d 个%s\n", n_in, TOL, bad_in, bad_in ? "【不符】" : "  过");
-    printf("  全图外侧 %d 像素：期望 =清屏色     → 真结果 不符 %d 个%s\n", n_out, bad_out, bad_out ? "【不符】" : "  过");
-    printf("  边带跳过 %d 像素（合计 %d）\n", n_edge, n_in + n_out + n_edge);
+    printf("  whole image, inside %d pixels: expected ≈interpolated(±%d) → got %d mismatched%s\n", n_in, TOL, bad_in, bad_in ? " [MISMATCH]" : "  pass");
+    printf("  whole image, outside %d pixels: expected =clear color       → got %d mismatched%s\n", n_out, bad_out, bad_out ? " [MISMATCH]" : "  pass");
+    printf("  edge band skipped %d pixels (total %d)\n", n_edge, n_in + n_out + n_edge);
     if (bad_in || bad_out) fails++;
     mtlb_target_free(rt);
 }
 
 int main(void) {
     mtlb_ctx *ctx = mtlb_init();
-    if (!ctx) { printf("mtlb_init 失败\n"); return 1; }
+    if (!ctx) { printf("mtlb_init failed\n"); return 1; }
     uint8_t *buf = malloc(W * H * 4);
     const mtlb_fmt fmts[2] = {MTLB_FMT_BGRA8, MTLB_FMT_RGBA8};
     for (int i = 0; i < 2; i++) test_clear(ctx, fmts[i], buf);
     for (int i = 0; i < 2; i++) test_triangle(ctx, fmts[i], buf);
     free(buf);
     mtlb_shutdown(ctx);
-    printf("%s：不符项 %d\n", fails ? "【失败】" : "全部通过", fails);
+    printf("%s: mismatches %d\n", fails ? "[FAILED]" : "all passed", fails);
     return fails ? 1 : 0;
 }

@@ -28,20 +28,20 @@ static void roundtrip(const char *tag, int target, int fmt, uint32_t w, uint32_t
     for (unsigned y = 0; y < L.layers; y++) for (unsigned l = 0; l < levels; l++) {
         uint32_t rb, rows, sl; dims(&d, l, &rb, &rows, &sl);
         size_t n = (size_t)rb * rows * sl; ref[y][l] = malloc(n); for (size_t i = 0; i < n; i++) ref[y][l][i] = rnd();
-        CHECK(!nvn_swizzle(&d, l, y, ref[y][l], rb, st), "%s 写入失败 层%u 级%u", tag, y, l);
+        CHECK(!nvn_swizzle(&d, l, y, ref[y][l], rb, st), "%s write failed layer %u level %u", tag, y, l);
     }
     int guard_ok = 1; for (size_t i = 0; i < guard; i++) guard_ok &= st[L.size + i] == 0xAB;
-    CHECK(guard_ok, "%s 写出存储末尾（越界）", tag);
+    CHECK(guard_ok, "%s wrote past the end of storage (out of bounds)", tag);
     int ok = 1;
     for (unsigned y = 0; y < L.layers; y++) for (unsigned l = 0; l < levels; l++) {
         uint32_t rb, rows, sl; dims(&d, l, &rb, &rows, &sl);
         size_t n = (size_t)rb * rows * sl; uint8_t *out = malloc(n);
-        CHECK(!nvn_deswizzle(&d, l, y, st, out, rb), "%s 解出失败", tag);
-        if (memcmp(out, ref[y][l], n)) { ok = 0; printf("  ✗ %s 层%u 级%u 往返不等\n", tag, y, l); }
+        CHECK(!nvn_deswizzle(&d, l, y, st, out, rb), "%s decode failed", tag);
+        if (memcmp(out, ref[y][l], n)) { ok = 0; printf("  ✗ %s layer %u level %u round trip differs\n", tag, y, l); }
         bytes += n; free(out); free(ref[y][l]);
     }
     checks++; if (!ok) fails++;
-    printf("  A %-34s 层%u × 级%u，往返 %llu 字节 %s\n", tag, L.layers, levels, (unsigned long long)bytes, ok ? "全等" : "不等");
+    printf("  A %-34s layers %u × levels %u, round trip %llu bytes %s\n", tag, L.layers, levels, (unsigned long long)bytes, ok ? "identical" : "differ");
     free(st);
 }
 
@@ -119,11 +119,11 @@ static void real_pair(const char *dir, int i, const char *why) {
     snprintf(p, sizeof p, "%s/dm/%d.texture", dir, i); uint8_t *sb = slurp(p, &ns);
     snprintf(p, sizeof p, "%s/pc/%d.texture", dir, i); uint8_t *pb = slurp(p, &np);
     tex_t s, c;
-    CHECK(sb && pb && !parse(sb, ns, &s) && !parse(pb, np, &c), "样本 %d 读取 / 解析失败（%s）", i, why);
+    CHECK(sb && pb && !parse(sb, ns, &s) && !parse(pb, np, &c), "sample %d read / parse failed (%s)", i, why);
     if (!sb || !pb || parse(sb, ns, &s) || parse(pb, np, &c)) return;
     if (!s.bl) {   // not converted for Switch: linear, should be byte-identical to the PC original
-        CHECK(ns == np && !memcmp(sb, pb, ns), "样本%d 无块线性标记但与 PC 原件不同", i);
-        printf("  C %d %-30s 无 Switch 块线性标记（0x14 = 0）→ 线性存放，与 PC 原件 %s（%zu 字节）\n", i, why, ns == np && !memcmp(sb, pb, ns) ? "逐字节全等" : "不等", ns);
+        CHECK(ns == np && !memcmp(sb, pb, ns), "sample %d has no block-linear marker but differs from the PC original", i);
+        printf("  C %d %-30s no Switch block-linear marker (0x14 = 0) → stored linearly, %s the PC original (%zu bytes)\n", i, why, ns == np && !memcmp(sb, pb, ns) ? "byte-identical to" : "differs from", ns);
         free(sb); free(pb); return;
     }
     nvn_texdesc d = {1, s.nvn, 0, 0, s.w, s.h, 1, s.mips, 0, s.th_hdr + 1};   // block height follows the file header (same as the packaged layout parameters the game passes in)
@@ -131,23 +131,23 @@ static void real_pair(const char *dir, int i, const char *why) {
     // ③ Per-level offsets in the file (cumulative mip table) vs nvn_tex_level_offset
     int off_ok = 1;
     for (unsigned l = 0; l < s.mips; l++)
-        if (s.off[l] != nvn_tex_level_offset(&d, l)) { off_ok = 0; printf("  ✗ 样本%d 级%u 文件偏移 %llu ≠ nvn_tex %llu\n", i, l, (unsigned long long)s.off[l], (unsigned long long)nvn_tex_level_offset(&d, l)); }
+        if (s.off[l] != nvn_tex_level_offset(&d, l)) { off_ok = 0; printf("  ✗ sample %d level %u file offset %llu ≠ nvn_tex %llu\n", i, l, (unsigned long long)s.off[l], (unsigned long long)nvn_tex_level_offset(&d, l)); }
     nvn_texlayout L; nvn_tex_layout(&d, &L);
     uint64_t file_total = s.off[s.mips - 1] + s.size[s.mips - 1];
     checks++; if (!off_ok) fails++;
-    CHECK(file_total == L.size, "样本%d 文件像素区 %llu ≠ nvn_tex 总尺寸 %llu", i, (unsigned long long)file_total, (unsigned long long)L.size);
+    CHECK(file_total == L.size, "sample %d file pixel area %llu ≠ nvn_tex total size %llu", i, (unsigned long long)file_total, (unsigned long long)L.size);
     // Corresponding PC level: PC side length = Switch × 2^k
     unsigned k = 0; while ((s.w << k) < c.w) k++;
-    if ((s.w << k) != c.w || (s.h << k) != c.h) { CHECK(0, "样本%d 尺寸比非 2 的幂", i); return; }
+    if ((s.w << k) != c.w || (s.h << k) != c.h) { CHECK(0, "sample %d size ratio is not a power of 2", i); return; }
     unsigned nl = s.mips < c.mips - k ? s.mips : c.mips - k;
     uint64_t eq = 0, tot = 0; double ps = 0, ps_bad = 99; unsigned th0, td0;
     nvn_tex_level_tiles(&d, 0, &th0, &td0);
     for (unsigned l = 0; l < nl; l++) {
         uint32_t rb, rows, sl; dims(&d, l, &rb, &rows, &sl);
         uint8_t *lin = malloc((size_t)rb * rows);
-        CHECK(!nvn_deswizzle(&d, l, 0, s.px, lin, rb), "样本%d 级%u 解排布失败", i, l);
+        CHECK(!nvn_deswizzle(&d, l, 0, s.px, lin, rb), "sample %d level %u deswizzle failed", i, l);
         const uint8_t *pcl = c.px + c.off[l + k];
-        CHECK(c.size[l + k] >= (uint64_t)rb * rows, "样本%d 级%u PC 级尺寸不足", i, l);
+        CHECK(c.size[l + k] >= (uint64_t)rb * rows, "sample %d level %u PC level too small", i, l);
         if (!k) { for (size_t j = 0; j < (size_t)rb * rows; j++) eq += lin[j] == pcl[j]; tot += (uint64_t)rb * rows; }
         if (l == 0) {
             uint32_t w = s.w, h = s.h;
@@ -156,97 +156,97 @@ static void real_pair(const char *dir, int i, const char *why) {
                 if ((int)th0 + dt < 0 || rows <= 8) continue;
                 uint8_t *bad = malloc((size_t)rb * rows); deswz_tile(s.px, ns - s.hdr, 0, rb, rows, th0 + dt, bad);
                 uint8_t *e = decode(s.nvn, bad, w, h); double q = psnr(e, b, (size_t)w * h * 3); if (q < ps_bad) ps_bad = q;
-                if (!k) CHECK(memcmp(bad, pcl, (size_t)rb * rows), "样本%d 块高 %+d 仍逐字节相等（负对照失效）", i, dt);
+                if (!k) CHECK(memcmp(bad, pcl, (size_t)rb * rows), "sample %d block height %+d still byte-identical (negative control ineffective)", i, dt);
                 free(bad); free(e);
             }
             free(a); free(b);
         }
         free(lin);
     }
-    if (!k) CHECK(eq == tot, "样本%d 逐字节 %llu/%llu", i, (unsigned long long)eq, (unsigned long long)tot);
-    CHECK(ps >= PSNR_PASS, "样本%d 正确块高 PSNR %.2f < %.0f", i, ps, PSNR_PASS);
+    if (!k) CHECK(eq == tot, "sample %d identical bytes %llu/%llu", i, (unsigned long long)eq, (unsigned long long)tot);
+    CHECK(ps >= PSNR_PASS, "sample %d correct block height PSNR %.2f < %.0f", i, ps, PSNR_PASS);
     uint32_t rows0 = (s.h + 3) / 4; if (s.nvn == 0x25) rows0 = s.h;
-    if (rows0 > 8) CHECK(ps_bad < PSNR_PASS, "样本%d 错块高 PSNR %.2f ≥ %.0f（负对照失效）", i, ps_bad, PSNR_PASS);
-    char neg[48]; if (rows0 > 8) snprintf(neg, sizeof neg, "%.2f", ps_bad); else snprintf(neg, sizeof neg, "不适用（1 个 GOB 高）");
-    printf("  C %d %-30s %4u×%-4u→PC 级%u  头块高 %d（自动 %u）偏移%s  %s  PSNR 正确 %.2f / 错块高 %s dB\n", i, why, s.w, s.h, k,
-           s.th_hdr, th_auto, off_ok ? "✓" : "✗", k ? "（降分辨率，不比字节）" : (eq == tot ? "逐字节全等" : "逐字节不等"), ps, neg);
-    if (!k) printf("      逐字节 %llu/%llu\n", (unsigned long long)eq, (unsigned long long)tot);
+    if (rows0 > 8) CHECK(ps_bad < PSNR_PASS, "sample %d wrong block height PSNR %.2f ≥ %.0f (negative control ineffective)", i, ps_bad, PSNR_PASS);
+    char neg[48]; if (rows0 > 8) snprintf(neg, sizeof neg, "%.2f", ps_bad); else snprintf(neg, sizeof neg, "n/a (1 GOB high)");
+    printf("  C %d %-30s %4u×%-4u→PC level %u  header block height %d (auto %u) offsets %s  %s  PSNR correct %.2f / wrong block height %s dB\n", i, why, s.w, s.h, k,
+           s.th_hdr, th_auto, off_ok ? "✓" : "✗", k ? "(reduced resolution, bytes not compared)" : (eq == tot ? "byte-identical" : "bytes differ"), ps, neg);
+    if (!k) printf("      identical bytes %llu/%llu\n", (unsigned long long)eq, (unsigned long long)tot);
     free(sb); free(pb);
 }
 
 int main(int argc, char **argv) {
-    printf("A 往返（随机数据，非 2 的幂尺寸）\n");
-    roundtrip("2D 100×37 R8 4 级", 1, 0x01, 100, 37, 1, 4);
-    roundtrip("2D 100×37 RG8 4 级", 1, 0x0D, 100, 37, 1, 4);
-    roundtrip("2D 100×37 RGBA8 4 级", 1, 0x25, 100, 37, 1, 4);
-    roundtrip("2D 100×37 RGBA16F 4 级", 1, 0x29, 100, 37, 1, 4);
-    roundtrip("2D 100×37 RGBA32F 4 级", 1, 0x2E, 100, 37, 1, 4);
-    roundtrip("2D 100×37 BC3(16B/块) 4 级", 1, 0x44, 100, 37, 1, 4);
-    roundtrip("2D 300×300 BC1(8B/块) 5 级", 1, 0x42, 300, 300, 1, 5);
-    roundtrip("2D 数组 100×37×3 层 RGBA8 3 级", 4, 0x25, 100, 37, 3, 3);
-    roundtrip("2D 数组 64×64×2 层 BC3 4 级", 4, 0x44, 64, 64, 2, 4);
-    roundtrip("3D 100×37×5 RGBA8 3 级", 2, 0x25, 100, 37, 5, 3);
-    roundtrip("3D 64×64×20 R8 4 级", 2, 0x01, 64, 64, 20, 4);
-    roundtrip("3D 40×30×9 RGBA32F 3 级", 2, 0x2E, 40, 30, 9, 3);
+    printf("A round trip (random data, non-power-of-2 sizes)\n");
+    roundtrip("2D 100×37 R8 4 levels", 1, 0x01, 100, 37, 1, 4);
+    roundtrip("2D 100×37 RG8 4 levels", 1, 0x0D, 100, 37, 1, 4);
+    roundtrip("2D 100×37 RGBA8 4 levels", 1, 0x25, 100, 37, 1, 4);
+    roundtrip("2D 100×37 RGBA16F 4 levels", 1, 0x29, 100, 37, 1, 4);
+    roundtrip("2D 100×37 RGBA32F 4 levels", 1, 0x2E, 100, 37, 1, 4);
+    roundtrip("2D 100×37 BC3(16B/block) 4 levels", 1, 0x44, 100, 37, 1, 4);
+    roundtrip("2D 300×300 BC1(8B/block) 5 levels", 1, 0x42, 300, 300, 1, 5);
+    roundtrip("2D array 100×37×3 layers RGBA8 3 levels", 4, 0x25, 100, 37, 3, 3);
+    roundtrip("2D array 64×64×2 layers BC3 4 levels", 4, 0x44, 64, 64, 2, 4);
+    roundtrip("3D 100×37×5 RGBA8 3 levels", 2, 0x25, 100, 37, 5, 3);
+    roundtrip("3D 64×64×20 R8 4 levels", 2, 0x01, 64, 64, 20, 4);
+    roundtrip("3D 40×30×9 RGBA32F 3 levels", 2, 0x2E, 40, 30, 9, 3);
 
-    printf("B 地址公式（期望值按 GOB 64B×8 行公开排布手算）\n");
+    printf("B address formula (expected values hand-calculated from the public GOB 64B×8-row layout)\n");
     struct { uint32_t x, y, z, rb, rows; unsigned th, td; uint64_t want; const char *how; } B[] = {
-        {0, 0, 0, 64, 8, 0, 0, 0, "原点"},
-        {17, 3, 0, 64, 8, 0, 0, 113, "GOB 内：(3/2)·64 + (17%32/16)·32 + (3%2)·16 + 17%16 = 64+32+16+1"},
-        {70, 9, 0, 128, 32, 1, 0, 1558, "块高 2：第 1 列块 1024 + 块内第 1 个 GOB 512 + GOB 内 (9%2)·16 + 6 = 22"},
-        {0, 0, 1, 64, 8, 0, 1, 512, "块深 2：块内第 1 个 GOB（z%2·块高1）= 512"},
-        {0, 0, 2, 64, 8, 0, 1, 1024, "块深 2：第 1 层块 = 1 列 × 1 行 × 1024"},
-        {200, 40, 0, 256, 64, 2, 0, 9284, "块高 4（32 行）：第 1 行块 4·2048=8192 + 第 3 列块 3·2048=6144？见下"},
+        {0, 0, 0, 64, 8, 0, 0, 0, "origin"},
+        {17, 3, 0, 64, 8, 0, 0, 113, "within GOB: (3/2)·64 + (17%32/16)·32 + (3%2)·16 + 17%16 = 64+32+16+1"},
+        {70, 9, 0, 128, 32, 1, 0, 1558, "block height 2: block column 1 1024 + GOB 1 within the block 512 + within GOB (9%2)·16 + 6 = 22"},
+        {0, 0, 1, 64, 8, 0, 1, 512, "block depth 2: GOB 1 within the block (z%2·block height 1) = 512"},
+        {0, 0, 2, 64, 8, 0, 1, 1024, "block depth 2: block layer 1 = 1 column × 1 row × 1024"},
+        {200, 40, 0, 256, 64, 2, 0, 9284, "block height 4 (32 rows): block row 1 4·2048=8192 + block column 3 3·2048=6144? see below"},
     };
     // Last hand-calculated case: rb=256 → 4 GOBs wide; block height 4 GOBs = 32 rows, block 2048 bytes; y=40 → block row 1: 4×2048 = 8192;
     // x=200 → block column 3: 3×2048 = 6144; GOB within the block = (40%32)/8 = 1 → 512; within the GOB x%64=8, y%8=0 → 8. Total 8192+6144+512+8 = 14856
-    B[5].want = 14856; B[5].how = "块高 4：行块 8192 + 列块 6144 + 块内 GOB 512 + GOB 内 8";
+    B[5].want = 14856; B[5].how = "block height 4: block row 8192 + block column 6144 + GOB within block 512 + within GOB 8";
     for (unsigned i = 0; i < sizeof B / sizeof *B; i++) {
         uint64_t got = nvn_bl_offset(B[i].x, B[i].y, B[i].z, B[i].rb, B[i].rows, B[i].th, B[i].td);
-        CHECK(got == B[i].want, "B%u 得 %llu 期望 %llu", i, (unsigned long long)got, (unsigned long long)B[i].want);
+        CHECK(got == B[i].want, "B%u got %llu expected %llu", i, (unsigned long long)got, (unsigned long long)B[i].want);
         printf("  B%u (%u,%u,%u) → %llu %s  %s\n", i, B[i].x, B[i].y, B[i].z, (unsigned long long)got, got == B[i].want ? "✓" : "✗", B[i].how);
     }
 
     // ---------- E hand-built 3D: place markers into block-linear storage at hand-calculated addresses, decode, and verify where the markers land (round trip A only proves self-consistency, not whether the layout is right) ----------
     // Source of the block height / block depth rule: deko3d dk_image.cpp - for 3D textures block height is fixed at 1 GOB, block depth = pickTileSize(depth + depth/2).
-    printf("E 手工 3D 块线性（标记放在手算地址，解排布后核落点）\n");
+    printf("E hand-built 3D block-linear (markers at hand-calculated addresses, landing points checked after deswizzle)\n");
     {
         nvn_texdesc d = {2, 0x25, 0, 0, 32, 16, 20, 1, 0, 0};   // 3D RGBA8 32×16×20: row 128 bytes = 2 GOBs wide, 16 rows = 2 GOBs high
         nvn_texlayout L; nvn_tex_layout(&d, &L);
         // Block depth: 20 + 10 = 30 ≥ 16 → 16 slices (log2 = 4); block = 512 × 16 = 8192 bytes; one block layer = 2 columns × 2 rows × 8192 = 32768; ceil(20/16) = 2 layers → 65536
-        CHECK(L.tileH == 0 && L.tileD == 4, "E 32×16×20 块高/块深 = %u/%u，期望 0/4", L.tileH, L.tileD);
-        CHECK(L.size == 65536, "E 32×16×20 存储 %llu 期望 65536", (unsigned long long)L.size);
+        CHECK(L.tileH == 0 && L.tileD == 4, "E 32×16×20 block height/depth = %u/%u, expected 0/4", L.tileH, L.tileD);
+        CHECK(L.size == 65536, "E 32×16×20 storage %llu expected 65536", (unsigned long long)L.size);
         struct { uint32_t x, y, z; uint64_t addr; const char *how; } V[] = {
-            {0, 0, 0, 0, "原点"},
-            {20, 11, 3, 26224, "行块 1·2·8192=16384 + 列块(80/64=1)·8192 + 块内 GOB z%16=3·512=1536 + GOB 内 (x80%64=16,y3) 64+32+16 = 112"},
-            {31, 15, 17, 58364, "深块 1·32768 + 行块 16384 + 列块 8192 + 块内 GOB 1·512 + GOB 内 (x60,y7) 256+192+32+16+12 = 508"},
-            {5, 2, 19, 34404, "深块 32768 + 块内 GOB 3·512=1536 + GOB 内 (x20,y2) 64+32+4 = 100"},
+            {0, 0, 0, 0, "origin"},
+            {20, 11, 3, 26224, "block row 1·2·8192=16384 + block column (80/64=1)·8192 + GOB within block z%16=3·512=1536 + within GOB (x80%64=16,y3) 64+32+16 = 112"},
+            {31, 15, 17, 58364, "depth block 1·32768 + block row 16384 + block column 8192 + GOB within block 1·512 + within GOB (x60,y7) 256+192+32+16+12 = 508"},
+            {5, 2, 19, 34404, "depth block 32768 + GOB within block 3·512=1536 + within GOB (x20,y2) 64+32+4 = 100"},
         };
         uint8_t *st = calloc(L.size, 1), *lin = calloc(128 * 16 * 20, 1);
         for (unsigned i = 0; i < 4; i++) for (int k = 0; k < 4; k++) st[V[i].addr + k] = (uint8_t)(0x10 * (i + 1) + k + 1);
-        CHECK(!nvn_deswizzle(&d, 0, 0, st, lin, 128), "E 解排布失败");
+        CHECK(!nvn_deswizzle(&d, 0, 0, st, lin, 128), "E deswizzle failed");
         for (unsigned i = 0; i < 4; i++) {
             const uint8_t *p = lin + ((size_t)V[i].z * 16 + V[i].y) * 128 + V[i].x * 4; int ok = 1;
             for (int k = 0; k < 4; k++) ok &= p[k] == (uint8_t)(0x10 * (i + 1) + k + 1);
-            CHECK(ok, "E 体素 (%u,%u,%u) 未在手算地址 %llu 处取到标记", V[i].x, V[i].y, V[i].z, (unsigned long long)V[i].addr);
-            printf("  E (%2u,%2u,%2u) ← 存储 %5llu %s  %s\n", V[i].x, V[i].y, V[i].z, (unsigned long long)V[i].addr, ok ? "✓" : "✗", V[i].how);
+            CHECK(ok, "E voxel (%u,%u,%u) did not get the marker at hand-calculated address %llu", V[i].x, V[i].y, V[i].z, (unsigned long long)V[i].addr);
+            printf("  E (%2u,%2u,%2u) ← storage %5llu %s  %s\n", V[i].x, V[i].y, V[i].z, (unsigned long long)V[i].addr, ok ? "✓" : "✗", V[i].how);
         }
         size_t nz = 0; for (size_t j = 0; j < 128 * 16 * 20; j++) nz += lin[j] != 0;
-        CHECK(nz == 16, "E 解出非零字节 %zu 期望 16（标记外不该有数据）", nz);
+        CHECK(nz == 16, "E nonzero decoded bytes %zu expected 16 (there should be no data outside the markers)", nz);
         free(st); free(lin);
         // Shape of the real color lookup table on the character select screen: 32³ RGBA16F (ser 17 / 16). Block depth 32 + 16 = 48 ≥ 16 → 16 slices; row 256 bytes = 4 GOBs wide, 32 rows = 4 GOBs high, 2 block layers → 4·4·2·8192 = 262144
         nvn_texdesc lut = {2, 0x29, 0, 0, 32, 32, 32, 1, 0, 0}; nvn_tex_layout(&lut, &L);
-        CHECK(L.tileH == 0 && L.tileD == 4 && L.size == 4 * 4 * 2 * 8192ull, "E 32³ RGBA16F 块高/块深 %u/%u 存储 %llu，期望 0/4、262144", L.tileH, L.tileD, (unsigned long long)L.size);
-        printf("  E 32³ RGBA16F（选角页调色表形态）块高/块深 %u/%u、存储 %llu（期望 0/4、262144）\n", L.tileH, L.tileD, (unsigned long long)L.size);
+        CHECK(L.tileH == 0 && L.tileD == 4 && L.size == 4 * 4 * 2 * 8192ull, "E 32³ RGBA16F block height/depth %u/%u storage %llu, expected 0/4, 262144", L.tileH, L.tileD, (unsigned long long)L.size);
+        printf("  E 32³ RGBA16F (shape of the character select color lookup table) block height/depth %u/%u, storage %llu (expected 0/4, 262144)\n", L.tileH, L.tileD, (unsigned long long)L.size);
     }
 
-    printf("C/D 真数据对拍（Switch 块线性 vs PC 线性）+ 错块高负对照，阈值 %.0f dB\n", PSNR_PASS);
+    printf("C/D real-data cross-check (Switch block-linear vs PC linear) + wrong-block-height negative control, threshold %.0f dB\n", PSNR_PASS);
     const char *dir = argc > 1 ? argv[1] : getenv("DM_TEX_SAMPLES");
     char lp[1024]; snprintf(lp, sizeof lp, "%s/list.tsv", dir ? dir : "."); FILE *f = dir ? fopen(lp, "r") : NULL;
-    CHECK(f, "缺样本目录（先 make samples）"); int npair = 0;
+    CHECK(f, "sample directory missing (run make samples first)"); int npair = 0;
     if (f) { char line[1024]; while (fgets(line, sizeof line, f)) { int i; char path[512], why[256];
         if (sscanf(line, "%d\t%511[^\t]\t%255[^\n]", &i, path, why) == 3) { real_pair(dir, i, why); npair++; } } fclose(f); }
-    CHECK(npair >= 3, "真数据样本不足 3 对（%d）", npair);
-    printf("%s：%d/%d 项通过（真数据 %d 对）\n", fails ? "红" : "全过", checks - fails, checks, npair);
+    CHECK(npair >= 3, "fewer than 3 real-data sample pairs (%d)", npair);
+    printf("%s: %d/%d checks passed (%d real-data pairs)\n", fails ? "RED" : "all passed", checks - fails, checks, npair);
     return fails ? 1 : 0;
 }

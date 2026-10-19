@@ -33,7 +33,7 @@
 #define RT(p)  ((__bridge MTLBRt *)(void *)(p))
 
 static void err(const char *where, NSError *e) {
-    fprintf(stderr, "[mtlb] %s 失败%s%s\n", where, e ? "：" : "",
+    fprintf(stderr, "[mtlb] %s failed%s%s\n", where, e ? ": " : "",
             e ? e.localizedDescription.UTF8String : "");
 }
 
@@ -48,7 +48,7 @@ mtlb_ctx *mtlb_init(void) {
     @autoreleasepool {
         id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
         if (!dev) { err("MTLCreateSystemDefaultDevice", nil); return NULL; }
-        if (!dev.hasUnifiedMemory) { err("需要统一内存设备（Shared 渲染目标）", nil); return NULL; }
+        if (!dev.hasUnifiedMemory) { err("unified-memory device check (needed for Shared render targets)", nil); return NULL; }
         MTLBCtx *c = [MTLBCtx new];
         c.dev = dev;
         c.queue = [dev newCommandQueue];
@@ -80,7 +80,7 @@ static MTLPixelFormat pixfmt(mtlb_fmt f) {
 mtlb_rt *mtlb_target(mtlb_ctx *ctx, uint32_t w, uint32_t h, mtlb_fmt fmt) {
     @autoreleasepool {
         MTLPixelFormat pf = pixfmt(fmt);
-        if (!ctx || !w || !h || pf == MTLPixelFormatInvalid) { err("mtlb_target 参数", nil); return NULL; }
+        if (!ctx || !w || !h || pf == MTLPixelFormatInvalid) { err("mtlb_target argument check", nil); return NULL; }
         MTLTextureDescriptor *d =
             [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:pf width:w height:h mipmapped:NO];
         d.storageMode = MTLStorageModeShared;
@@ -184,13 +184,13 @@ int mtlb_readback(mtlb_ctx *ctx, mtlb_rt *rt, void *buf, size_t buf_size) {
         MTLBCtx *c = CTX(ctx);
         MTLBRt *r = RT(rt);
         size_t row = (size_t)r.w * 4;
-        if (buf_size < row * r.h) { err("mtlb_readback 缓冲太小", nil); return -1; }
+        if (buf_size < row * r.h) { err("mtlb_readback (buffer too small)", nil); return -1; }
         if (c.frame) {
             id<MTLCommandBuffer> cb = c.frame;
             c.frame = nil;
             [cb commit];
             [cb waitUntilCompleted];
-            if (cb.status != MTLCommandBufferStatusCompleted) { err("commandBuffer 执行", cb.error); return -1; }
+            if (cb.status != MTLCommandBufferStatusCompleted) { err("commandBuffer execution", cb.error); return -1; }
         }
         [r.tex getBytes:buf bytesPerRow:row fromRegion:MTLRegionMake2D(0, 0, r.w, r.h) mipmapLevel:0];
         return 0;

@@ -27,5 +27,5 @@ static inline int dm_widget_is_slot(const uint8_t *base, uint64_t w) { uint64_t 
 #define DM_WIDGET_RED_DEF \
     static int dm_widget_red_(const uint8_t *base, uint64_t w, uint64_t vt, const char *who) { static int n; \
         if (w && base && n++ < 5) { const char *nm = *(const char **)(uintptr_t)(w + 8); \
-            LOG("【红】%s：控件「%s」不是预期的类（虚表 main+%#llx，应为 %#llx），不按偏移读写", who, nm ? nm : "?", (unsigned long long)dm_widget_vt(base, w), (unsigned long long)vt); } \
+            LOG("[RED] %s: widget '%s' is not of the expected class (vtable main+%#llx, should be %#llx), offsets not read or written", who, nm ? nm : "?", (unsigned long long)dm_widget_vt(base, w), (unsigned long long)vt); } \
         return 0; }

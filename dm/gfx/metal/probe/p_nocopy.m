@@ -15,7 +15,7 @@ int main(void) {
     id<MTLBuffer> A = [dev newBufferWithBytesNoCopy:DOWN(a0) length:UP(a1) - DOWN(a0) options:MTLResourceStorageModeShared deallocator:nil];
     id<MTLBuffer> B = [dev newBufferWithBytesNoCopy:DOWN(b0) length:UP(b1) - DOWN(b0) options:MTLResourceStorageModeShared deallocator:nil];
     id<MTLBuffer> bad = [dev newBufferWithBytesNoCopy:a0 length:pg options:MTLResourceStorageModeShared deallocator:nil];
-    printf("页大小 %zu；A %s B %s；未对齐起点建缓冲 %s\n", pg, A ? "成功" : "失败", B ? "成功" : "失败", bad ? "成功（与预期不符）" : "失败（符合预期）");
+    printf("page size %zu; A %s B %s; buffer at an unaligned start %s\n", pg, A ? "ok" : "failed", B ? "ok" : "failed", bad ? "ok (not as expected)" : "failed (as expected)");
     // GPU: copy 4096 bytes from a0 in A to b0 in B (of the two blocks' landing points, one is outside and one is inside the overlapping pages)
     for (int i = 0; i < 4096; i++) a0[i] = (uint8_t)(i * 7 + 3);
     id<MTLCommandQueue> q = [dev newCommandQueue];
@@ -29,6 +29,6 @@ int main(void) {
     for (int i = 0; i < 256; i++) ok2 &= b0[0x1000 + i] == 0xAB;
     uint8_t *viaA = (uint8_t *)A.contents + (b0 + 0x1000 - DOWN(a0));
     int ok3 = viaA[0] == 0xAB && viaA[255] == 0xAB;
-    printf("GPU 拷贝 A→B 4096 B 全等：期望 1 → 真结果 %d\nGPU 填充经 CPU 原指针读到：期望 1 → 真结果 %d\n同一字节经 A 的 contents 读到：期望 1 → 真结果 %d\n", ok1, ok2, ok3);
+    printf("GPU copy A→B 4096 B identical: expected 1 → got %d\nGPU fill seen through the original CPU pointer: expected 1 → got %d\nsame bytes seen through A's contents: expected 1 → got %d\n", ok1, ok2, ok3);
     return !(A && B && !bad && ok1 && ok2 && ok3);
 }

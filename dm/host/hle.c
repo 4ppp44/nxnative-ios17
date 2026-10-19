@@ -50,7 +50,7 @@ void stubs_report(void) { LOG("stubs=%u", g_nstub); }
 enum { G_SVC, G_CNTPCT, G_CNTVCT, G_OBS };
 // Observation gates (inserted offline from the rewriter's OBS table): number → read-only callback; with no callback attached the gate returns after one pass in and out
 static void (*g_obs_fn[OBS_MAX])(const uint64_t *regs); static int g_obs_have[OBS_MAX];
-void gate_obs_set(int id, void (*fn)(const uint64_t *regs)) { if (id <= 0 || id >= OBS_MAX) die("观测门编号越界 %d", id); g_obs_fn[id] = fn; }
+void gate_obs_set(int id, void (*fn)(const uint64_t *regs)) { if (id <= 0 || id >= OBS_MAX) die("observation gate number out of range %d", id); g_obs_fn[id] = fn; }
 int gate_obs_present(int id) { return id > 0 && id < OBS_MAX && g_obs_have[id]; }
 static uint8_t g_svc_have[256];   // svc numbers registered in the build output (used to tell whether the host call numbers from 0x80 up, introduced by cuts, are present)
 int gate_svc_present(int num) { return num >= 0 && num < 256 && g_svc_have[num]; }
@@ -62,12 +62,12 @@ static inline unsigned gate_h(uint64_t a) { return (unsigned)(((a >> 2) * 0x9E37
 
 void gate_register(uint64_t ret_abs, const char *kind, int arg, uint64_t orig) {
     int k = !strcmp(kind, "svc") ? G_SVC : !strcmp(kind, "cntpct") ? G_CNTPCT : !strcmp(kind, "cntvct") ? G_CNTVCT : !strcmp(kind, "obs") ? G_OBS : -1;
-    if (k < 0) die("未知门类 %s", kind);
-    if (k == G_OBS) { if (arg <= 0 || arg >= OBS_MAX) die("观测门编号越界 %d", arg); g_obs_have[arg] = 1; }
+    if (k < 0) die("unknown gate kind %s", kind);
+    if (k == G_OBS) { if (arg <= 0 || arg >= OBS_MAX) die("observation gate number out of range %d", arg); g_obs_have[arg] = 1; }
     if (k == G_SVC && arg >= 0 && arg < 256) g_svc_have[arg] = 1;
     if (++g_ngate > (1 << GATE_BITS) / 4) die("gate overflow");
     unsigned i = gate_h(ret_abs);
-    while (g_gate[i].ret) { if (g_gate[i].ret == ret_abs) die("门重复登记 %#llx", ret_abs); i = (i + 1) & ((1u << GATE_BITS) - 1); }
+    while (g_gate[i].ret) { if (g_gate[i].ret == ret_abs) die("gate registered twice %#llx", ret_abs); i = (i + 1) & ((1u << GATE_BITS) - 1); }
     g_gate[i] = (gate_t){ret_abs, k, arg, orig};
 }
 

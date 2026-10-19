@@ -27,23 +27,23 @@ static class P {
     static int Main(string[] a) {
         bool manifest = Array.IndexOf(a, "--manifest") >= 0; a = Array.FindAll(a, s => s != "--manifest");
         g_allow = Array.IndexOf(a, "--allow-damaged") >= 0; a = Array.FindAll(a, s => s != "--allow-damaged");
-        if (a.Length < 4) { Console.Error.WriteLine("用法 | usage: nx_extract <prod.keys> <base.nsp> <update.nsp|-> <out dir> [base RomFS dir] [--manifest] [--allow-damaged]\n       nx_extract <prod.keys> --aoc <dlc.nsp> <out dir>"); return 2; }
+        if (a.Length < 4) { Console.Error.WriteLine("usage: nx_extract <prod.keys> <base.nsp> <update.nsp|-> <out dir> [base RomFS dir] [--manifest] [--allow-damaged]\n       nx_extract <prod.keys> --aoc <dlc.nsp> <out dir>"); return 2; }
         KeySet ks = ExternalKeyReader.ReadKeyFile(a[0]);
         if (a[1] == "--aoc") return Aoc(ks, a[2], a[3]);
         var basePkg = OpenNsp(ks, a[1]); var updPkg = a[2] == "-" ? null : OpenNsp(ks, a[2]);
-        Nca baseProg = Pick(basePkg, NcaContentType.Program) ?? throw new Exception("基础 NSP 里没有程序 NCA | no Program NCA in the base NSP");
-        Nca updProg = updPkg == null ? null : Pick(updPkg, NcaContentType.Program) ?? throw new Exception("更新 NSP 里没有程序 NCA | no Program NCA in the update NSP");
+        Nca baseProg = Pick(basePkg, NcaContentType.Program) ?? throw new Exception("no Program NCA in the base NSP");
+        Nca updProg = updPkg == null ? null : Pick(updPkg, NcaContentType.Program) ?? throw new Exception("no Program NCA in the update NSP");
         Nca ctrl = Pick(updPkg ?? basePkg, NcaContentType.Control);
-        Console.WriteLine($"标题 | title {baseProg.Header.TitleId:x16}" + (updProg != null ? $"，更新 | update {updProg.Header.TitleId:x16}" : ""));
+        Console.WriteLine($"title {baseProg.Header.TitleId:x16}" + (updProg != null ? $", update {updProg.Header.TitleId:x16}" : ""));
         string outDir = a[3], cmpDir = a.Length > 4 ? a[4] : null;
         if (ctrl != null) {   // control data (NACP): display version and game name; a raw copy goes to <output dir>/control.nacp for naming the app
             byte[] nacp = Nacp(ctrl);
-            Console.WriteLine($"显示版本 | display version {System.Text.Encoding.ASCII.GetString(nacp, 0x3060, 0x10).TrimEnd('\0')}");
-            Console.WriteLine($"名称 | name {TitleName(nacp)}");
+            Console.WriteLine($"display version {System.Text.Encoding.ASCII.GetString(nacp, 0x3060, 0x10).TrimEnd('\0')}");
+            Console.WriteLine($"name {TitleName(nacp)}");
             Directory.CreateDirectory(outDir); File.WriteAllBytes(Path.Combine(outDir, "control.nacp"), nacp);
             var (icon, lang) = Icon(ctrl);   // the game icon for the app icon, saved as <output dir>/icon.jpg (build_ipa.sh picks it up)
-            if (icon != null) { File.WriteAllBytes(Path.Combine(outDir, "icon.jpg"), icon); Console.WriteLine($"图标 | icon {lang}（{icon.Length} 字节 | bytes）"); }
-            else Console.WriteLine("控制数据里没有图标 | no icon in the control data");
+            if (icon != null) { File.WriteAllBytes(Path.Combine(outDir, "icon.jpg"), icon); Console.WriteLine($"icon {lang} ({icon.Length} bytes)"); }
+            else Console.WriteLine("no icon in the control data");
         }
         // Code section: the update's ExeFS is complete; opening it layered over the base gives the same result
         IFileSystem exefs = updProg != null ? baseProg.OpenFileSystemWithPatch(updProg, NcaSectionType.Code, IntegrityCheckLevel.ErrorOnInvalid) : baseProg.OpenFileSystem(NcaSectionType.Code, IntegrityCheckLevel.ErrorOnInvalid);
@@ -52,7 +52,7 @@ static class P {
         foreach (string p in mods) {   // build ID of every NSO module (main, sdk, subsdk*, rtld...)
             if (new FileInfo(p).Length < 0x50) continue;
             byte[] h = new byte[0x50]; using (var f = File.OpenRead(p)) f.ReadExactly(h);
-            if (h[0] == 'N' && h[1] == 'S' && h[2] == 'O' && h[3] == '0') Console.WriteLine($"{Path.GetFileName(p)} 构建号 | build id {Convert.ToHexString(h, 0x40, 16).ToLowerInvariant()}");
+            if (h[0] == 'N' && h[1] == 'S' && h[2] == 'O' && h[3] == '0') Console.WriteLine($"{Path.GetFileName(p)} build id {Convert.ToHexString(h, 0x40, 16).ToLowerInvariant()}");
         }
         IStorage romfs = updProg != null ? baseProg.OpenStorageWithPatch(updProg, NcaSectionType.Data, IntegrityCheckLevel.ErrorOnInvalid) : baseProg.OpenStorage(NcaSectionType.Data, IntegrityCheckLevel.ErrorOnInvalid);
         // the same RomFS without hash checks, for reading damaged files as they are (--allow-damaged)
@@ -67,9 +67,9 @@ static class P {
     static bool HashError(HorizonResultException e) => e.ResultValue.Module == 2 && e.ResultValue.Description >= 4600 && e.ResultValue.Description < 4700;   // fs: integrity verification failures (2002-46xx)
     static int Damaged() {
         if (g_damaged.Count == 0) return 0;
-        foreach (string p in g_damaged) Console.WriteLine($"【红】哈希校验失败 | fails its hash check: {p}");
-        if (g_allow) { Console.WriteLine($"【红】NSP 已损坏：{g_damaged.Count} 个文件照读到的内容写出（--allow-damaged）| the NSP is damaged: {g_damaged.Count} files written as read (--allow-damaged)"); return 0; }
-        Console.WriteLine($"【红】NSP 已损坏：{g_damaged.Count} 个文件的数据过不了 NCA 的哈希校验（拷贝不完整或下载坏了），请重新拷贝或下载；--allow-damaged 照读到的内容写出 | the NSP is damaged: " +
+        foreach (string p in g_damaged) Console.WriteLine($"[RED] hash check failed: {p}");
+        if (g_allow) { Console.WriteLine($"[RED] the NSP is damaged: {g_damaged.Count} files written as read (--allow-damaged)"); return 0; }
+        Console.WriteLine($"[RED] the NSP is damaged: " +
                           $"{g_damaged.Count} files fail the NCA's hash check (an incomplete copy or a broken download); copy or download it again, or pass --allow-damaged to write them as read");
         return 3;
     }
@@ -77,8 +77,8 @@ static class P {
     // DLC NSP: one data NCA (content type PublicData / Data) + a meta NCA + the ticket; only the data NCA's RomFS is written
     static int Aoc(KeySet ks, string nsp, string outDir) {
         var pkg = OpenNsp(ks, nsp);
-        Nca data = Pick(pkg, NcaContentType.PublicData) ?? Pick(pkg, NcaContentType.Data) ?? throw new Exception("DLC NSP 里没有数据 NCA | no data NCA in the DLC NSP");
-        Console.WriteLine($"追加内容 | add-on content {data.Header.TitleId:x16}");
+        Nca data = Pick(pkg, NcaContentType.PublicData) ?? Pick(pkg, NcaContentType.Data) ?? throw new Exception("no data NCA in the DLC NSP");
+        Console.WriteLine($"add-on content {data.Header.TitleId:x16}");
         Directory.CreateDirectory(outDir);
         Copy(new RomFsFileSystem(data.OpenStorage(NcaSectionType.Data, IntegrityCheckLevel.ErrorOnInvalid)), outDir, null);
         return 0;
@@ -95,7 +95,7 @@ static class P {
             IStorage st = f.Release().AsStorage();
             if (e.Name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase)) {
                 byte[] t = new byte[0x2c0]; st.Read(0, t).ThrowIfFailure();
-                if (t[0x281] != 0) { Console.Error.WriteLine($"【红】{e.Name} 不是通用票据，标题密钥要另给 | is not a common ticket; supply the title key separately"); continue; }
+                if (t[0x281] != 0) { Console.Error.WriteLine($"[RED] {e.Name} is not a common ticket; supply the title key separately"); continue; }
                 ks.ExternalKeySet.Add(new RightsId(t.AsSpan(0x2a0, 0x10)), new AccessKey(t.AsSpan(0x180, 0x10))).ThrowIfFailure();
             } else if (e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)) ncas.Add(new Nca(ks, st));
         }
@@ -153,7 +153,7 @@ static class P {
             string cp = cmpDir == null ? null : Path.Combine(cmpDir, rel);
             if (cp != null && File.Exists(cp) && new FileInfo(cp).Length == e.Size && Same(f.Get, cp, e.Size, buf, cb)) {
                 if (File.Exists(op)) File.Delete(op);
-                if (clonefile(cp, op, 0) != 0) throw new IOException($"clonefile {cp} → {op} 失败 | failed: errno {Marshal.GetLastWin32Error()}");
+                if (clonefile(cp, op, 0) != 0) throw new IOException($"clonefile {cp} → {op} failed: errno {Marshal.GetLastWin32Error()}");
                 cloned++; continue;
             }
             try { Write(f.Get, op, e.Size, buf); }
@@ -167,13 +167,13 @@ static class P {
             }
             written += e.Size;
         }
-        Console.WriteLine($"{dst}：{n} 个文件 {bytes / 1048576.0:F1} MB，其中 {cloned} 个与比对目录相同（克隆），新写 {written / 1048576.0:F1} MB | {n} files {bytes / 1048576.0:F1} MB, {cloned} identical to the compare dir (cloned), {written / 1048576.0:F1} MB newly written");
+        Console.WriteLine($"{dst}: {n} files {bytes / 1048576.0:F1} MB, {cloned} identical to the compare dir (cloned), {written / 1048576.0:F1} MB newly written");
     }
     static void Write(IFile f, string op, long size, byte[] buf) {
         using var o = File.Create(op);
         for (long off = 0; off < size;) {
             f.Read(out long got, off, buf.AsSpan(0, (int)Math.Min(buf.Length, size - off)), ReadOption.None).ThrowIfFailure();
-            if (got <= 0) throw new IOException($"读不出 | cannot read @{off}");
+            if (got <= 0) throw new IOException($"cannot read @{off}");
             o.Write(buf, 0, (int)got); off += got;
         }
     }
@@ -182,7 +182,7 @@ static class P {
         long n = 0, bytes = 0; byte[] h = new byte[32];
         Directory.CreateDirectory(Path.GetDirectoryName(path));
         using var o = new StreamWriter(path);
-        o.WriteLine("# 路径\t字节\t头 32 字节（十六进制） | path\tbytes\tfirst 32 bytes (hex)");
+        o.WriteLine("# path\tbytes\tfirst 32 bytes (hex)");
         foreach (DirectoryEntryEx e in fs.EnumerateEntries("*", SearchOptions.RecurseSubdirectories)) {
             if (e.Type == DirectoryEntryType.Directory) continue;
             using var f = new UniqueRef<IFile>();
@@ -193,7 +193,7 @@ static class P {
             o.WriteLine($"{e.FullPath}\t{e.Size}\t{Convert.ToHexString(h, 0, (int)got).ToLowerInvariant()}");
             n++; bytes += e.Size;
         }
-        Console.WriteLine($"{path}：RomFS {n} 个文件 {bytes / 1048576.0:F1} MB（只列清单）| RomFS {n} files {bytes / 1048576.0:F1} MB (manifest only)");
+        Console.WriteLine($"{path}: RomFS {n} files {bytes / 1048576.0:F1} MB (manifest only)");
     }
     static bool Same(IFile f, string path, long size, byte[] buf, byte[] cb) {
         using var c = File.OpenRead(path);
