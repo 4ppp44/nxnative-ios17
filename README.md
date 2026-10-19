@@ -34,8 +34,8 @@ All of these are tested on an iPhone and playable:
 | Super&nbsp;Mario&nbsp;Odyssey | ~6&nbsp;GB | |
 | Hades | ~4&nbsp;GB | |
 | Hyrule&nbsp;Warriors:&nbsp;Age&nbsp;of&nbsp;Calamity | ~15&nbsp;GB | |
-| Fire&nbsp;Emblem:&nbsp;Three&nbsp;Houses | ~13&nbsp;GB | Upgraded to 60 fps (30 fps on Switch). While packing, the script starts the game on the Mac for a few seconds to collect the shaders it builds as it runs |
-| Super&nbsp;Mario&nbsp;Galaxy | ~3&nbsp;GB | Like Three Houses, packing starts the game on the Mac for a few seconds to collect its shaders |
+| Fire&nbsp;Emblem:&nbsp;Three&nbsp;Houses | ~13&nbsp;GB | Upgraded to 60 fps (30 fps on Switch) |
+| Super&nbsp;Mario&nbsp;Galaxy | ~3&nbsp;GB | |
 
 Being ported:
 
