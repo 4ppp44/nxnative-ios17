@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Unsigned IPA straight from the NSPs: identify the game (title ID → game profile dm/games/<id>/) → extract (nx_extract) → rewrite the code modules (patch_nso.py)
 #   → (profiles with shader_glslc_capture: capture the shaders the game compiles at run time, by booting it in the Mac host for a few seconds) → split out the shaders and check them against the profile's tables (shader_split.py)
+#   (a Vulkan game with shader_vk_capture, Super Mario Galaxy, boots the same way to capture the SPIR-V shaders it generates)
 #   → iOS shader libraries (dmsh_build.py) → build_ipa.sh. A Vulkan game (profile key graphics vulkan: Hades) skips the NVN shader steps: vk_shaders.py translates its SPIR-V shaders instead. A game with no matching profile is surveyed (<NSP folder>/<title ID>_survey/survey.md), then gets a provisional profile guessed from
 #   the survey (<NSP folder>/<title ID>_build/profile/<title ID>/, outside the repository, found through DM_GAMES_DIR) and a best-effort IPA that may not boot; SURVEY_ONLY / --survey-only stops after the survey.
 # Two ways to run it: open this file in Spyder and press F5 (it uses the values under "Settings" below; an empty NSP folder or prod.keys is asked for at run time);
@@ -15,8 +16,8 @@ import collections, ctypes, getpass, os, re, shlex, shutil, struct, subprocess, 
 from pathlib import Path
 
 # ---- Settings ----
-NSP_DIR = ''                            # folder holding the NSPs (empty = ask at run time)
-PROD_KEYS = ''                          # path of prod.keys (empty = ask at run time)
+NSP_DIR = '/Volumes/T7/nsp/The Legend of Zelda Tears of the Kingdom/'                            # folder holding the NSPs (empty = ask at run time)
+PROD_KEYS = '/Users/f2pgod/My Drive/Python_Scripts/nsp_check/prod.keys'                          # path of prod.keys (empty = ask at run time)
 PACKAGE = ''                            # version packed into the IPA (empty = the profile's package; Mario 'v327680' i.e. 1.2.1, or 'v0')
 OUT_IPA = ''                            # output IPA (empty = <the profile's ipa> in the NSP folder)
 APP_NAME = ''                           # app name on the home screen (empty = the game name in the base NSP)
@@ -25,6 +26,7 @@ KEEP_EXTRACTED = False                  # keep the extracted game files after th
 DM_ENV_FILE = ''                        # optional: environment switches for a diagnostic build (one KEY=VALUE per line)
 SURVEY_ONLY = False                     # a game with no profile in dm/games: only write the survey, no provisional profile and no IPA
 PROFILE_OUT = ''                        # where a provisional profile goes (empty = <NSP folder>/<title ID>_build/profile; the profile is <this>/<title ID>/)
+ALLOW_DAMAGED = False                   # a damaged NSP (files failing the NCA's hash check: an incomplete copy or a broken download) stops the build; True writes those files as read and goes on
 
 PROGRESS = 'auto'                       # stage lines on the console: 'bar' (one line per stage, redrawn in place), 'lines' (a plain line every BEAT seconds), 'off' (only each stage's start and end); 'auto' = bar in a terminal or Spyder, lines when the output goes to a file
 BEAT = 30                               # seconds between progress lines in 'lines' mode
@@ -381,7 +383,7 @@ def survey(nsp_dir, app, fam, keys, repo, py, env):
         except OSError: return None
     PROG.stage('survey: RomFS manifest', poll=listed)
     say(f'解出代码模块与 RomFS 清单（不写游戏文件）| extracting the code modules and a RomFS manifest (no game files written) → {ex}')
-    run([nx, keys, fam['base'], upd or '-', tmp, '--manifest'], logs / 'extract.log')
+    run([nx, keys, fam['base'], upd or '-', tmp, '--manifest'] + (['--allow-damaged'] if ALLOW_DAMAGED else []), logs / 'extract.log')
     swap_in(tmp, ex)
     PROG.stage('survey: code modules', step='reading')
     xlog = (logs / 'extract.log').read_text(errors='replace')
@@ -557,7 +559,7 @@ def extract(nx, keys, ex, name, base, upd, cmp_dir, logs, g):
     def poll():
         n, b = tree_size(tmp); return {'done': b, 'note': f'{n:,} files'}
     PROG.stage(f'extract {name}', poll=poll, unit='B', total=last[1] if last else base.stat().st_size + (upd.stat().st_size if upd else 0), est=not last)
-    run([nx, keys, base, upd or '-', tmp] + ([cmp_dir] if cmp_dir else []), log)
+    run([nx, keys, base, upd or '-', tmp] + ([cmp_dir] if cmp_dir else []) + (['--allow-damaged'] if ALLOW_DAMAGED else []), log)
     check_build(tmp, name, g); swap_in(tmp, dst)
     n, b = extracted(log) or (0, 0)
     PROG.end(f'{n:,} files, {amount(b, "B")}')
@@ -680,6 +682,65 @@ def capture_glslc(repo, dirs, pkg_ver, patched, work, env, logs, g):
     PROG.end(f'{len(got)} shaders in {hms(time.time() - t0)}')
 
 
+VK_CAPTURE_SECS = 120   # the longest Vulkan capture run: Super Mario Galaxy creates its 3,089 modules within 6 s of its first one (about 15 s after boot on an M4 Pro)
+
+
+def vk_wanted(g):   # the SPIR-V keys the profile's vk_capture.tsv lists; None without the table (a provisional profile)
+    try: keys = {l.strip() for l in g.table('vk_capture.tsv').read_text().splitlines() if l.strip() and not l.startswith('#')}
+    except OSError: return None
+    return keys or None
+
+
+def vk_done(d):   # keys of the whole SPIR-V files in a capture folder (the host writes each under a temporary name and renames it)
+    try: names = os.listdir(d)
+    except OSError: return set()
+    return {n[:-4] for n in names if n.endswith('.spv') and len(n) == 20}
+
+
+def capture_vk(repo, d, patched, work, env, logs, g):
+    """Profiles with shader_vk_capture on (Super Mario Galaxy): the game generates its SPIR-V shaders at run time (Hagi's GX shaders, from its pipeline database), so no game file holds them.
+    The game boots in the Mac host (headless and silent, no shader library) with DM_VK_CAPTURE (dm/gfx/vk/hle_vk.m), which writes each module to <version dir>/vk_capture, where vk_shaders.py
+    reads them with the RomFS; the modules are the same on every run. The run stops once every key the profile's vk_capture.tsv lists is there; without the table, once none has been added for 20 s.
+    A folder that already holds every listed key is reused"""
+    want, out = vk_wanted(g), d / 'vk_capture'
+    PROG.stage('Vulkan shader capture')
+    if want and vk_done(out) >= want:
+        say(f'沿用捕获的运行时着色器 | reusing the captured run-time shaders: {out}'); PROG.end('reused'); return out
+    PROG.set(step='building the Mac host')
+    host = build_mac_host(repo, work / 'tools/dmhost', env, logs, g)
+    cap, rd, log = d / 'vk_capture.partial', work / 'tmp/vk_run', logs / 'vk_capture.log'
+    rmtree(cap); rmtree(rd); cap.mkdir(parents=True)
+    for x in ('save', 'temp', 'msl'): (rd / x).mkdir(parents=True)
+    # everything the run writes stays in <id>_build (DM_ROOT is already there): a fresh save and temporary storage, an empty shader library folder (pipelines fail, the game still creates every module)
+    henv = dict(env, DM_ROMFS=str(d / 'RomFS'), DM_SAVE=str(rd / 'save'), DM_TEMP=str(rd / 'temp'), DM_MSL_DIR=str(rd / 'msl'), DM_VK_CAPTURE=str(cap))
+    PROG.set(step='booting the game', done=0, total=len(want) if want else None, unit='shaders')
+    say(f'在 Mac 宿主里启动游戏，捕获它运行时生成的 SPIR-V 着色器 | booting the game in the Mac host to capture the SPIR-V shaders it generates at run time → {out}')
+    t0 = last_t = time.time(); last_n = 0
+    with open(log, 'w') as f:
+        p = subprocess.Popen([str(host), str(patched)], env=henv, cwd=rd, stdout=f, stderr=subprocess.STDOUT)
+        try:
+            while True:
+                got = vk_done(cap); n = len(got & want if want else got); PROG.set(done=n)
+                if n != last_n: last_n, last_t = n, time.time()
+                if (want and got >= want) or (not want and n and time.time() - last_t > 20) or p.poll() is not None or time.time() - t0 > VK_CAPTURE_SECS: break
+                time.sleep(0.25)
+        finally:
+            if p.poll() is None:
+                p.terminate()   # SIGTERM: the host's graceful exit
+                try: p.wait(5)
+                except subprocess.TimeoutExpired: p.kill(); p.wait()
+    got = vk_done(cap)
+    if not got or (want and not got >= want):
+        PROG.end(ok=False)
+        PROG.say(f'---- last lines of {log} ----\n' + ''.join(collections.deque(open(log, errors='replace'), maxlen=40)).rstrip('\n'))
+        raise BuildError(f'只捕获到 {len(got)} 个运行时着色器' + (f'，游戏档案要 {len(want)} 个' if want else '') + f'（宿主输出 | host output: {log}）| captured only {len(got)} run-time shaders'
+                         + (f', the profile needs {len(want)}' if want else '') + f' (host output: {log})')
+    if want and got - want: say(f'【红】捕获到游戏档案的 vk_capture.tsv 里没有的着色器 | captured shaders the profile\'s vk_capture.tsv does not list: {len(got - want)}')
+    swap_in(cap, out); rmtree(rd)
+    PROG.end(f'{len(got)} shaders in {hms(time.time() - t0)}')
+    return out
+
+
 def data_rows(b):   # a table's data rows (without # comment lines: the header changes with the shader_split.py version, not with the game files)
     return [l for l in b.splitlines() if not l.startswith(b'#')]
 
@@ -771,13 +832,13 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, provisional=False):
     return ios
 
 
-def build_vk_shaders(py, repo, romfs, sh, env, logs):
-    """A Vulkan game's SPIR-V shaders → one Metal library each for the Mac (sh/vk/) and the iPhone (sh/ios/vk/, what build_ipa.sh takes from MSL_IOS), replacing the NVN split and chain build.
-    The old output is deleted first, so a failed run leaves nothing for build_ipa.sh to pick up; vk_shaders.py's temporary files go to WORK (on the NSP folder's volume)"""
+def build_vk_shaders(py, repo, roots, sh, env, logs):
+    """A Vulkan game's SPIR-V shaders (roots: the RomFS, and a run-time capture folder) → one Metal library each for the Mac (sh/vk/) and the iPhone (sh/ios/vk/, what build_ipa.sh takes from MSL_IOS),
+    replacing the NVN split and chain build. The old output is deleted first, so a failed run leaves nothing for build_ipa.sh to pick up; vk_shaders.py's temporary files go to WORK (on the NSP folder's volume)"""
     ios = sh / 'ios'
     PROG.stage('Vulkan shaders')
     rmtree(sh / 'vk'); rmtree(ios / 'vk')
-    run([py, repo / 'dm/gfx/tools/vk_shaders.py', romfs, sh, '--ios', ios], logs / 'vk_shaders.log', env=dict(env, TMPDIR=env['WORK']))
+    run([py, repo / 'dm/gfx/tools/vk_shaders.py', *roots, sh, '--ios', ios], logs / 'vk_shaders.log', env=dict(env, TMPDIR=env['WORK']))
     if not (ios / 'vk/vk_shaders.metallib').is_file(): raise BuildError(f'没出 iOS Vulkan 着色器库 | no iOS Vulkan shader library in {ios / "vk"}')
     m = re.search(r'iphoneos: (\d+)', (logs / 'vk_shaders.log').read_text(errors='replace'))
     PROG.end(f'{int(m.group(1)):,} shaders for the Mac and iOS' if m else '')
@@ -858,6 +919,7 @@ def parse_args(argv):
     ap.add_argument('--keep-extracted', action='store_true', help='出包后保留解出的游戏文件 | keep the extracted game files after the IPA is built')
     ap.add_argument('--env-file', help='诊断包的环境开关文件（每行 KEY=VALUE）| environment switches for a diagnostic build (one KEY=VALUE per line)')
     ap.add_argument('--survey-only', action='store_true', help='没有游戏档案的游戏只写粗查报告，不生成临时档案、不出 IPA | a game with no profile: only the survey, no provisional profile and no IPA')
+    ap.add_argument('--allow-damaged', action='store_true', help='NSP 损坏（文件过不了 NCA 哈希校验）时照读到的内容写出并继续，不停下 | a damaged NSP (files failing the NCA hash check): write them as read and go on instead of stopping')
     ap.add_argument('--profile-out', help='临时游戏档案放哪（缺省 = <NSP 文件夹>/<标题号>_build/profile）| where the provisional profile goes (default: <NSP folder>/<title ID>_build/profile)')
     ap.add_argument('--progress', choices=('auto', 'bar', 'lines', 'off'), help='stage lines on the console: bar = one line per stage, redrawn in place; lines = a plain line every BEAT seconds; off = only each stage\'s start and end '
                     '(default: the PROGRESS setting; auto = bar in a terminal or Spyder, lines when the output goes to a file or a pipe)')
@@ -867,6 +929,7 @@ def parse_args(argv):
 def main(args=None):
     args = args or parse_args([])
     PROG.mode = progress_mode(args.progress or PROGRESS)
+    global ALLOW_DAMAGED; ALLOW_DAMAGED = args.allow_damaged or ALLOW_DAMAGED
     here = Path(globals().get('__file__') or sys.argv[0]).resolve()
     repo = find_repo(here)
     sys.path.insert(0, str(repo / 'dm/games')); import game as gamemod   # game profiles
@@ -919,7 +982,8 @@ def main(args=None):
     gb = sum({p.stat().st_size for b, u in picks.values() for p in (b, u) if p}) / 2**30 + 6   # extraction + shader cache + slack
     if free_gb(work) < gb and not all((ex / v).exists() for v in versions): raise BuildError(f'{work} 所在的卷剩余不足 {gb:.0f} GB | less than {gb:.0f} GB free on the volume of {work}')
     glslc = gfx == 'nvn' and g.get('shader_glslc_capture', 'off') == 'on'   # shaders the game compiles at run time, captured in the Mac host (capture_glslc)
-    PROG.plan(1 + len(versions) + bool(fam['dlc']) + glslc + (5 if gfx == 'nvn' else 4))   # nx_extract, each version's extraction, the DLC, rewrite, the GLSLC capture, shader split + iOS shaders (or the Vulkan shaders), app build, IPA pack
+    vkcap = gfx == 'vulkan' and g.get('shader_vk_capture', 'off') == 'on'   # SPIR-V shaders the game generates at run time, captured in the Mac host (capture_vk)
+    PROG.plan(1 + len(versions) + bool(fam['dlc']) + glslc + vkcap + (5 if gfx == 'nvn' else 4))   # nx_extract, each version's extraction, the DLC, rewrite, the GLSLC / Vulkan capture, shader split + iOS shaders (or the Vulkan shaders), app build, IPA pack
     PROG.stage('build nx_extract')
     nx = build_nx_extract(repo, work, logs, env)
     PROG.end()
@@ -943,7 +1007,9 @@ def main(args=None):
     rewrite(py, repo, game / 'ExeFS', patched, env, logs, g)
     if glslc: capture_glslc(repo, {v: dirs[v] for v in need}, pkg_ver, patched, work, env, logs, g)
     sh = work / 'shader'
-    if gfx == 'vulkan': ios = build_vk_shaders(py, repo, game / 'RomFS', sh, env, logs)   # the packed version's merged RomFS holds the SPIR-V files the game loads
+    if gfx == 'vulkan':   # the packed version's merged RomFS holds the SPIR-V files the game loads; a capture holds those it generates
+        cap = capture_vk(repo, game, patched, work, env, logs, g) if vkcap else None
+        ios = build_vk_shaders(py, repo, [game / 'RomFS'] + ([cap] if cap else []), sh, env, logs)
     else:
         split_shaders(py, repo, [dirs[v] / 'RomFS' for v in need], [dirs[v] / 'ExeFS/main' for v in need], sh / 'pkg', env, logs, g, provisional)
         ios = build_shaders(py, repo, sh, xlate, env, logs, g, provisional)

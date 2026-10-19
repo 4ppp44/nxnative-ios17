@@ -30,6 +30,9 @@ python3 scripts/build_ipa_from_nsp.py ~/Games/MarioWonder -k ~/keys/prod.keys --
 
 # a diagnostic build with environment switches baked in (one KEY=VALUE per line)
 python3 scripts/build_ipa_from_nsp.py ~/Games/MarioWonder -k ~/keys/prod.keys --env-file diag_env.txt
+
+# a damaged NSP (files failing the NCA's hash check) stops the build after listing them; this packs those files as read
+python3 scripts/build_ipa_from_nsp.py ~/Games/MarioGalaxy -k ~/keys/prod.keys --allow-damaged
 ```
 
 In Spyder, open the script, fill in the settings at the top (`NSP_DIR`, `PROD_KEYS`, and optionally `PACKAGE`, `OUT_IPA`, `APP_NAME`, `BUNDLE_ID`), and press F5. Empty paths are asked for at run time.
@@ -39,7 +42,8 @@ What the script does:
 2. It extracts the NSPs.
 3. It rewrites the code modules, checking each build ID against the profile.
 4. For a profile with `shader_glslc_capture on` (Three Houses), it captures the shaders the game compiles at run time, which no game file holds. It builds the Mac host into `<id>_build/tools/dmhost` and boots the game in it, headless and silent, with `DM_GLSLC_CAPTURE` pointing at `<id>_build/extract/<version>/glslc_capture`. The save, temporary storage and log all stay in `<id>_build/`. It stops the game as soon as every capture file named in the profile's shader map is there (Three Houses: 9, about a second after launch), and gives up after 30 s. A folder that already holds them all is reused.
-5. It splits out the shaders and checks them against the profile's tables.
+   A Vulkan profile with `shader_vk_capture on` (Super Mario Galaxy) gets the same kind of run: the game boots in the Mac host with `DM_VK_CAPTURE` pointing at `<id>_build/extract/<version>/vk_capture` until every SPIR-V key in the profile's `vk_capture.tsv` is there (Galaxy: 3,089, about 7 s after launch), and gives up after 120 s.
+5. It splits out the shaders and checks them against the profile's tables (a Vulkan profile: it translates the RomFS's SPIR-V and the capture with `vk_shaders.py` instead).
 6. It builds the iOS shader libraries.
 7. It calls `build_ipa.sh`.
 
@@ -213,6 +217,16 @@ The game's own work and its frame rate stay as they are; the host avoids work of
 - **Memory:** about 3.5 GB resident and 2.8 GB of Metal allocations on the Mac; the game itself makes a 1.5 GB GPU-only memory pool.
 - **Frame rate:** 30 fps, as on the Switch.
 - **Mac input:** a fresh save needs `DM_KBD=<name>` for the name entry, and its confirm dialogs default to No. From a new game into the prologue battle (frame-based, about 6 minutes): `DM_KEYS="f360:A*185/45,f1200:Plus*35/219,f8700:A*120/250,f8760:Left~0.3*120/250,f8800:A*120/250,f9010:Plus*100/281"`; the game offers a save right before the battle.
+
+**Super Mario Galaxy (`010099C022B96000`)**
+- **Engine:** the Wii game (codename Comet) on NERD's Hagi layer, SDK 18.3.5, update 1.3.1 (v327680). The PowerPC code is statically recompiled into `main` (`hagi.config`: `Cpu` `Jit false`, `Statifier true`), so there is no JIT; Hagi stands in for the Wii hardware: GX on Vulkan, the DSP with its ROMs in `data/dsp`, the disc from the RomFS, HD texture packs in `data/texture_replace` and `data/ondemand_texture_replace`. Modules main + subsdk0 (movie) + sdk; subsdk1 (GLSLC), subsdk2 (`nn::pcm`) and subsdk3 / subsdk4 (NVIDIA's OpenGL and Vulkan drivers) are not loaded.
+- **Memory:** `main`'s bss is 2.9 GB (the emulated memory); the game never calls `SetHeapSize`, so the guest block is 1 GB. Footprint on the Mac 1.9 GB, 1.1 GB of it Metal.
+- **Vulkan:** 99 `vk*` imports through Hades' layer (`hle_vk.m`), which Galaxy extended: push constants, descriptor arrays, dual-source blending from an output at location 1, copies inside a render pass, linear images over their memory, timestamp and occlusion queries, pipeline caches, `vkCmdDraw`, image copies and read-backs, the GX vertex formats (USCALED / SSCALED, three components), viewport and scissor kept across render passes, the swapchain's INHERIT transform and the vi layer crop ([04](agents/04-graphics.md)).
+- **Shaders:** Hagi generates its GX shaders as SPIR-V at run time. While it shows "Initializing system..." it creates 3,089 modules (the 56 built into `main` among them) and 4,535 pipelines from `data/database/pip/pipelineDB.pip`, the same on every boot (about 15 s on the Mac). Profile key `shader_vk_capture on` and the key list `vk_capture.tsv`: the NSP script's `Vulkan shader capture` stage boots the game in the Mac host with `DM_VK_CAPTURE=<version dir>/vk_capture` until every listed key is there (under a minute), then `vk_shaders.py` translates the RomFS and the capture. Its two geometry shaders (GX points and lines, expanded to quads) are skipped: those draws come out as one-pixel points and lines.
+- **Pointer:** docked, Galaxy's pointer is the Joy-Con gyro, which the host does not have; handheld, it is the touch screen. The profile's `op_mode handheld` starts it in handheld mode (720p). On the iPhone, touches no gamepad control takes go to the game's touch screen (all of them while a controller is connected); on the Mac the mouse is a finger, and `DM_KEYS` taps with `T<x>x<y>` (normalized picture coordinates).
+- **CPU:** Hagi polls with `SleepThread(100 ns)`, which the host used to return from at once: one thread kept a core at 100%. Sleeps under 20 µs now count as yields and get the yield back-off ([03](agents/03-bringup.md)).
+- **Not yet:** GX points and lines (the geometry shaders), sampler LOD bias (GX uses it; Metal samplers have none, red line). The base NSP in hand was damaged (147 MB zeroed near its end: the two WebM prologue movies, which the storybook prologue does not use); it was packed with `--allow-damaged`.
+- **Mac input:** from a fresh save, `DM_KEYS="f1500:A,f1950:T0.373x0.70,f2300:A,f2700:A,f3200:A,f3600:LRight,f3800:A,f4200:T0.247x0.426,f4500:A,f4800:LRight,f5000:A,f5400:T0.659x0.366,f5800:A,f6200:LRight,f6400:A,f7000:A,f8000:A,f9000:A,f10000:A,f11000:A"` creates file 1 (Mario icon, Regular Mode) and plays the storybook prologue into the Star Festival (about frame 12,000). Screenshots of the handheld picture need `DM_NVN_SHOT_OUT=1280x720` (the raw swapchain image is 1920x1080 with the picture in its top-left 1280x720).
 
 ## Tools (`dm/tools`)
 

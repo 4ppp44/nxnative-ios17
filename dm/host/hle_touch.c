@@ -1,4 +1,4 @@
-// Touchscreen: the front end pushes the whole set of touch points (dm_touch_set, front.h), and the game reads them every frame through nn::hid::GetTouchScreenStates (hle_hid.c → touch_fill).
+// Touchscreen: the front end pushes the whole set of touch points (dm_touch_set, front.h), and the game reads them every frame through nn::hid::GetTouchScreenState(s) (hle_hid.c → touch_fill_n).
 // How the game reads (main 0x1b65260): it clears 16 states, asks for 16, and looks only at state 0 -- the touch count and each touch point's finger_id / x / y; the panel coordinate system is 1280x720
 // (it writes the constant 0x2d0_00000500 = 720 << 32 | 1280 in the same function). Therefore:
 //   · front-end normalized coordinates [0,1) (origin at the top left of the output picture) → x = nx·1280, y = ny·720, clamped to [0,1279] / [0,719];
@@ -33,13 +33,15 @@ void dm_touch_set(const dm_touch *t, int n) {
 }
 
 static int32_t clampi(float v, int hi) { int32_t r = (int32_t)(v * (float)(hi + 1)); return r < 0 ? 0 : r > hi ? hi : r; }
-// Fill one TouchScreenState<16> (out is 0x290 bytes); now_ns is used for delta_time. Returns the number of touch points written
-int touch_fill(void *out, uint64_t now_ns) {
-    uint8_t *o = out; memset(o, 0, 0x290);
+// Fill one TouchScreenState<max> (out is 0x10 + 0x28 · max bytes; max 1–16); now_ns is used for delta_time. Returns the number of touch points written.
+// Fingers beyond max are left for a later read (their Start / End is not used up)
+int touch_fill_n(void *out, int max, uint64_t now_ns) {
+    if (max < 1) max = 1; else if (max > 16) max = 16;
+    uint8_t *o = out; memset(o, 0, 0x10 + 0x28 * (size_t)max);
     pthread_mutex_lock(&g_tl);
     int64_t samp = ++g_tsamp; int64_t dt = g_tlast_ns ? (int64_t)(now_ns - g_tlast_ns) : 0; g_tlast_ns = now_ns;
     int k = 0;
-    for (int id = 0; id < 16; id++) {
+    for (int id = 0; id < 16 && k < max; id++) {
         if (g_f[id].st == F_EMPTY) continue;
         uint32_t attr = 0;
         if (!g_f[id].reported) { attr |= 1; g_f[id].reported = 1; }          // Start (reported for the first time this time)
@@ -65,3 +67,4 @@ int touch_fill(void *out, uint64_t now_ns) {
     }
     return k;
 }
+int touch_fill(void *out, uint64_t now_ns) { return touch_fill_n(out, 16, now_ns); }   // TouchScreenState<16>, 0x290 bytes

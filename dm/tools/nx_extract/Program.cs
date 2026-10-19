@@ -1,6 +1,8 @@
 // NSP extraction: nx_extract <prod.keys> <base NSP> <update NSP or -> <output dir> [base RomFS dir to compare against] [--manifest]
 // Writes <output dir>/ExeFS and <output dir>/RomFS (the merged RomFS when there is an update); with a base RomFS dir, files whose content matches it become APFS clones (no new space).
 // --manifest: the RomFS is not written, only a list <output dir>/romfs_manifest.tsv (path, size, first 32 bytes), for surveying a new game (a large game's RomFS is well over 10 GB).
+// A damaged NSP (a file whose data fails the NCA's hash check, e.g. a copy cut short or a broken download) stops the extraction with exit code 3 after listing every damaged file;
+//   --allow-damaged writes those files as read instead and only lists them (Super Mario Galaxy's base NSP with 147 MB zeroed: its two prologue WebM movies).
 // Add-on content: nx_extract <prod.keys> --aoc <DLC NSP> <output dir> writes the RomFS of the DLC's data NCA to <output dir> (the packing script puts it at aoc/<index>/, the host mounts it through DM_AOC_DIR).
 // Title keys come from the common tickets (.tik) inside the NSPs, so only prod.keys is needed; key values are never printed.
 using System;
@@ -24,7 +26,8 @@ static class P {
 
     static int Main(string[] a) {
         bool manifest = Array.IndexOf(a, "--manifest") >= 0; a = Array.FindAll(a, s => s != "--manifest");
-        if (a.Length < 4) { Console.Error.WriteLine("用法 | usage: nx_extract <prod.keys> <base.nsp> <update.nsp|-> <out dir> [base RomFS dir] [--manifest]\n       nx_extract <prod.keys> --aoc <dlc.nsp> <out dir>"); return 2; }
+        g_allow = Array.IndexOf(a, "--allow-damaged") >= 0; a = Array.FindAll(a, s => s != "--allow-damaged");
+        if (a.Length < 4) { Console.Error.WriteLine("用法 | usage: nx_extract <prod.keys> <base.nsp> <update.nsp|-> <out dir> [base RomFS dir] [--manifest] [--allow-damaged]\n       nx_extract <prod.keys> --aoc <dlc.nsp> <out dir>"); return 2; }
         KeySet ks = ExternalKeyReader.ReadKeyFile(a[0]);
         if (a[1] == "--aoc") return Aoc(ks, a[2], a[3]);
         var basePkg = OpenNsp(ks, a[1]); var updPkg = a[2] == "-" ? null : OpenNsp(ks, a[2]);
@@ -52,9 +55,23 @@ static class P {
             if (h[0] == 'N' && h[1] == 'S' && h[2] == 'O' && h[3] == '0') Console.WriteLine($"{Path.GetFileName(p)} 构建号 | build id {Convert.ToHexString(h, 0x40, 16).ToLowerInvariant()}");
         }
         IStorage romfs = updProg != null ? baseProg.OpenStorageWithPatch(updProg, NcaSectionType.Data, IntegrityCheckLevel.ErrorOnInvalid) : baseProg.OpenStorage(NcaSectionType.Data, IntegrityCheckLevel.ErrorOnInvalid);
+        // the same RomFS without hash checks, for reading damaged files as they are (--allow-damaged)
+        g_lenient = () => new RomFsFileSystem(updProg != null ? baseProg.OpenStorageWithPatch(updProg, NcaSectionType.Data, IntegrityCheckLevel.IgnoreOnInvalid) : baseProg.OpenStorage(NcaSectionType.Data, IntegrityCheckLevel.IgnoreOnInvalid));
         if (manifest) Manifest(new RomFsFileSystem(romfs), Path.Combine(outDir, "romfs_manifest.tsv"));
         else Copy(new RomFsFileSystem(romfs), Path.Combine(outDir, "RomFS"), cmpDir);
-        return 0;
+        return Damaged();
+    }
+
+    // Files whose data failed the hash check: listed at the end; exit code 3 unless --allow-damaged
+    static readonly List<string> g_damaged = new List<string>(); static bool g_allow; static Func<IFileSystem> g_lenient; static IFileSystem g_lenientFs;
+    static bool HashError(HorizonResultException e) => e.ResultValue.Module == 2 && e.ResultValue.Description >= 4600 && e.ResultValue.Description < 4700;   // fs: integrity verification failures (2002-46xx)
+    static int Damaged() {
+        if (g_damaged.Count == 0) return 0;
+        foreach (string p in g_damaged) Console.WriteLine($"【红】哈希校验失败 | fails its hash check: {p}");
+        if (g_allow) { Console.WriteLine($"【红】NSP 已损坏：{g_damaged.Count} 个文件照读到的内容写出（--allow-damaged）| the NSP is damaged: {g_damaged.Count} files written as read (--allow-damaged)"); return 0; }
+        Console.WriteLine($"【红】NSP 已损坏：{g_damaged.Count} 个文件的数据过不了 NCA 的哈希校验（拷贝不完整或下载坏了），请重新拷贝或下载；--allow-damaged 照读到的内容写出 | the NSP is damaged: " +
+                          $"{g_damaged.Count} files fail the NCA's hash check (an incomplete copy or a broken download); copy or download it again, or pass --allow-damaged to write them as read");
+        return 3;
     }
 
     // DLC NSP: one data NCA (content type PublicData / Data) + a meta NCA + the ticket; only the data NCA's RomFS is written
@@ -139,15 +156,26 @@ static class P {
                 if (clonefile(cp, op, 0) != 0) throw new IOException($"clonefile {cp} → {op} 失败 | failed: errno {Marshal.GetLastWin32Error()}");
                 cloned++; continue;
             }
-            using var o = File.Create(op);
-            for (long off = 0; off < e.Size;) {
-                f.Get.Read(out long got, off, buf.AsSpan(0, (int)Math.Min(buf.Length, e.Size - off)), ReadOption.None).ThrowIfFailure();
-                if (got <= 0) throw new IOException($"读不出 | cannot read {e.FullPath} @{off}");
-                o.Write(buf, 0, (int)got); off += got;
+            try { Write(f.Get, op, e.Size, buf); }
+            catch (HorizonResultException x) when (HashError(x)) {
+                g_damaged.Add(e.FullPath);
+                if (!g_allow || g_lenient == null) { File.Delete(op); continue; }
+                g_lenientFs ??= g_lenient();
+                using var lf = new UniqueRef<IFile>();
+                g_lenientFs.OpenFile(ref lf.Ref, e.FullPath.ToU8Span(), OpenMode.Read).ThrowIfFailure();
+                Write(lf.Get, op, e.Size, buf);
             }
             written += e.Size;
         }
         Console.WriteLine($"{dst}：{n} 个文件 {bytes / 1048576.0:F1} MB，其中 {cloned} 个与比对目录相同（克隆），新写 {written / 1048576.0:F1} MB | {n} files {bytes / 1048576.0:F1} MB, {cloned} identical to the compare dir (cloned), {written / 1048576.0:F1} MB newly written");
+    }
+    static void Write(IFile f, string op, long size, byte[] buf) {
+        using var o = File.Create(op);
+        for (long off = 0; off < size;) {
+            f.Read(out long got, off, buf.AsSpan(0, (int)Math.Min(buf.Length, size - off)), ReadOption.None).ThrowIfFailure();
+            if (got <= 0) throw new IOException($"读不出 | cannot read @{off}");
+            o.Write(buf, 0, (int)got); off += got;
+        }
     }
     // List the RomFS only (path, size, first 32 bytes) without writing game files
     static void Manifest(IFileSystem fs, string path) {
@@ -160,7 +188,8 @@ static class P {
             using var f = new UniqueRef<IFile>();
             fs.OpenFile(ref f.Ref, e.FullPath.ToU8Span(), OpenMode.Read).ThrowIfFailure();
             long got = 0; int want = (int)Math.Min(h.Length, e.Size);
-            if (want > 0) f.Get.Read(out got, 0, h.AsSpan(0, want), ReadOption.None).ThrowIfFailure();
+            try { if (want > 0) f.Get.Read(out got, 0, h.AsSpan(0, want), ReadOption.None).ThrowIfFailure(); }
+            catch (HorizonResultException x) when (HashError(x)) { g_damaged.Add(e.FullPath); got = 0; }   // the survey goes on; the file is listed as damaged
             o.WriteLine($"{e.FullPath}\t{e.Size}\t{Convert.ToHexString(h, 0, (int)got).ToLowerInvariant()}");
             n++; bytes += e.Size;
         }
