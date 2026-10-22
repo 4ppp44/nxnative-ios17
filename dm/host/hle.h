@@ -27,6 +27,7 @@ uint64_t dm_guest_frame(void);        // Incremented each time the host presents
 uint64_t dm_server_tick(void);        // In-run server tick; returns UINT64_MAX when not in a run or while DM_TICK_HOLD is frozen
 void guest_clock_freeze(int on);
 void guest_clock_freeze_for(int reason, int on);   // Freeze by reason (1 background, 2 system keyboard); see hle_os.c
+void guest_clock_read_wait(void);
 
 // Forced takeover: even if the SDK module has a definition, all references to that symbol at load time (JUMP_SLOT/GLOB_DAT/ABS64) are resolved to the host implementation.
 // Used only for the service-layer nn:: (service clients of fs/oe/aoc/pctl...); the SDK's libc++ and nn::os internals do not go into this table.

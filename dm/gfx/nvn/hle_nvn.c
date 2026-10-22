@@ -262,7 +262,17 @@ NVN(nvnTextureGetLevels, int, const NVNtexture *t) { return (int)CTX(t)->d.level
 NVN(nvnTextureGetSamples, int, const NVNtexture *t) { return CTX(t)->d.samples; }
 NVN(nvnTextureGetMemoryPool, NVNmemoryPool *, const NVNtexture *t) { return (NVNmemoryPool *)CTX(t)->pool; }
 NVN(nvnTextureGetMemoryOffset, ptrdiff_t, const NVNtexture *t) { return (ptrdiff_t)CTX(t)->off; }
-NVN(nvnTextureGetZCullStorageSize, size_t, const NVNtexture *t) { (void)t; return 0; }   // the host does no ZCull: no storage needed
+// The size of a texture's ZCull save area (SaveZCullData / RestoreZCullData). The host does no ZCull and never touches the area, but games allocate it from their own pools, and NVN
+// does not report 0. Cuphead (Unity 2017.4) allocates one per depth target (main+0x1948060) from its pool allocator, which gives a zero-size request the offset of a live block; its
+// map of allocations then loses that block (the zero-size one's size overwrites it, and freeing the zero-size one deletes it), and the block's own free later pushes a garbage-sized
+// range onto the free list (main+0x1945b10). Buffers allocated after that overlap live ones: copies read staging bytes other copies had overwritten, and sprites broke into slivers,
+// went missing, or flickered every fourth frame (the upload ring's period). The hardware's formula is not known; this one grows with the texture: 8 bytes per 32x32 tile and layer,
+// at least 256
+static size_t zcull_size(const nvn_texdesc *d) {
+    uint64_t tiles = (uint64_t)((d->width + 31) / 32) * ((d->height + 31) / 32) * (d->depth ? d->depth : 1);
+    return tiles ? (size_t)((tiles * 8 + 0xff) & ~0xffull) : 0x100;
+}
+NVN(nvnTextureGetZCullStorageSize, size_t, const NVNtexture *t) { return zcull_size(&CTX(t)->d); }
 static unsigned tex_swz(const tex_t *t) { return t->set_swz ? t->swz : 2u | 3u << 3 | 4u << 6 | 5u << 9; }   // the channel mapping: identity R G B A when TextureBuilderSetSwizzle was not called
 // The mapping counts: BotW and Odyssey rebuild layout captures on the same storage with a new mapping, and replace the registered descriptor only if the two compare different (BotW main+0xec33f0)
 NVN(nvnTextureCompare, NVNboolean, const NVNtexture *a, const NVNtexture *b) {
@@ -1088,8 +1098,24 @@ static void tsummary(uint64_t frame) {
       if (n && sum > 0) LOG("[perf] 至帧 %llu：出图调用速率 %.2f fps（%u 个完整帧间隔，含该窗口内暂停）；目标 %d fps；游戏目标 %d fps", frame, n * 1000.0 / sum, n, mtl_fps_target(), nvn_game_fps()); }
     { static uint64_t pc, ps, pf; uint64_t call, skip;
       void mtl_state_stats(uint64_t *, uint64_t *); mtl_state_stats(&call, &skip);
-      if (pf && frame > pf) LOG("[perf] 状态绑定 至帧 %llu：每帧发送 %.1f 次，跳过未变状态 %.1f 次（只统计宿主渲染状态/缓冲绑定）", frame, (call-pc)/(double)(frame-pf), (skip-ps)/(double)(frame-pf));
+      if (pf && frame > pf) LOG("[perf] 状态绑定 至帧 %llu：每帧发送 %.1f 次，跳过未变状态 %.1f 次（含渲染状态/缓冲/管线/深度模板）", frame, (call-pc)/(double)(frame-pf), (skip-ps)/(double)(frame-pf));
       pc = call; ps = skip; pf = frame; }
+    { static uint64_t ppc, pps, pdc, pds, lpf; uint64_t pc, ps, dc, ds;
+      void mtl_pipeline_bind_stats(uint64_t *, uint64_t *, uint64_t *, uint64_t *);
+      mtl_pipeline_bind_stats(&pc, &ps, &dc, &ds);
+      if (lpf && frame > lpf) LOG("[perf] 管线绑定细项 至帧 %llu：PSO 发送 %.1f/跳过 %.1f，DSS 发送 %.1f/跳过 %.1f", frame, (pc-ppc)/(double)(frame-lpf), (ps-pps)/(double)(frame-lpf), (dc-pdc)/(double)(frame-lpf), (ds-pds)/(double)(frame-lpf));
+      ppc = pc; pps = ps; pdc = dc; pds = ds; lpf = frame; }
+    { static uint64_t prev[3], pf; uint64_t v[3]; mtl_buffer_bind_stats(&v[0], &v[1], &v[2]);
+      if (pf && frame > pf) LOG("[perf] 缓冲绑定 至帧 %llu：每帧顶点地址查询 %.1f/复用 %.1f，仅更新偏移 %.1f", frame,
+          (v[0]-prev[0])/(double)(frame-pf), (v[1]-prev[1])/(double)(frame-pf), (v[2]-prev[2])/(double)(frame-pf));
+      memcpy(prev, v, sizeof prev); pf = frame; }
+    { static uint64_t prev_psol[5], psol_pf; uint64_t at, ac, wr, dr, fa;
+      void mtl_pso_user_stats(uint64_t *, uint64_t *, uint64_t *, uint64_t *, uint64_t *);
+      mtl_pso_user_stats(&at, &ac, &wr, &dr, &fa);
+      if (psol_pf && frame > psol_pf && at > prev_psol[0])
+        LOG("[perf] PSO 异步记录 至帧 %llu：尝试 %llu/接受 %llu/写入 %llu/丢弃 %llu/失败 %llu", frame,
+            (unsigned long long)at, (unsigned long long)ac, (unsigned long long)wr, (unsigned long long)dr, (unsigned long long)fa);
+      prev_psol[0] = at; psol_pf = frame; }
 
     double tgt = 1000.0 / mtl_fps_target();   // milliseconds one frame should take: 16.7 at 60 fps, 33.3 when the game itself asks for 30 (the over-time / dropped-frame counts below use it)
     { unsigned n = g_tn[0] < TWIN ? g_tn[0] : TWIN, over = 0; double v[TWIN];   // frame interval gets its own line (M1 baseline): number of frames longer than one frame period in this window and p99
@@ -1444,7 +1470,7 @@ NVN(nvnTextureGetSwizzle, void, const NVNtexture *t, NVNtextureSwizzle *r, NVNte
     if (r) *r = (NVNtextureSwizzle)(w & 7); if (g) *g = (NVNtextureSwizzle)(w >> 3 & 7); if (b) *b = (NVNtextureSwizzle)(w >> 6 & 7); if (a) *a = (NVNtextureSwizzle)(w >> 9 & 7);
 }
 NVN(nvnTextureGetStorageClass, NVNstorageClass, const NVNtexture *t) { (void)t; return 0; }
-NVN(nvnTextureBuilderGetZCullStorageSize, size_t, const NVNtextureBuilder *b) { (void)b; return 0; }
+NVN(nvnTextureBuilderGetZCullStorageSize, size_t, const NVNtextureBuilder *b) { return zcull_size(&TB(b)->d); }   // as for the texture (zcull_size)
 // Packaged texture data in CPU memory (not written into the pool by the game): NVN copies it into the texture storage at TextureInitialize (the CPU cannot write a compressible pool; the driver copies). 13 Sentinels creates all its textures this way
 NVN(nvnTextureBuilderSetPackagedTextureData, void, NVNtextureBuilder *b, const void *data) { TB(b)->pkg_data = data; }
 NVN(nvnTextureGetFormat, NVNformat, const NVNtexture *t) { return (NVNformat)CTX(t)->d.format; }

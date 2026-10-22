@@ -5,45 +5,76 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-10-19 (Build 2026101906)
+## [Unreleased] - 2026-10-22 (Build 2026102201)
 
 ### Added
-- **iOS 17.0+ & Apple A16 Metal 3 Compatibility**: Replaced upstream Metal 4 command queues, command buffers, argument buffers, residency sets, and barrier calls with traditional Metal 3 primitives, enabling native execution on iOS 17 and Apple A16 devices.
-- **Startup Graphics Preparation Gate & Binary Archive Cache**:
-  - Implemented a native startup preparation panel displaying real-time prewarming progress, total known items, failures, skips, and cache hit metrics before guest execution begins.
-  - Persistent pipeline caching utilizing traditional Metal `MTLBinaryArchive` partitioned by ABI (`nvn-ios17-pso-1`), title ID, shader chain, GPU identity, kernel OS version, and module fixup hashes.
-  - Safe backgrounding handling that pauses warmup and asynchronously flushes cached pipelines via `beginBackgroundTaskWithName:`.
-  - iOS 17 specialization guard: pipelines utilizing function constants bypass archive serialization on iOS < 18 to avoid OS-level serialization exceptions and compile directly on demand.
-  - Self-healing recovery: corrupted archives on disk are detected, discarded in memory, and cleanly rewritten on subsequent atomic flushes.
-- **Ergonomic Touch Controls**:
-  - Floating virtual joystick on the left half-screen with neutral finger-drop positioning and dynamic base following.
-  - Redesigned 2D action buttons: enlarged 92 pt face buttons (X/A/Y/B) shifted right by approximately 48 pt on iPhone 14 Pro Max for natural thumb rest, with a 6.4 pt chord overlap for Y+B run/jump actions.
-  - Fixed top-edge shoulder buttons (140x70.4 pt visual / 156x88 pt touch hit) extended outward toward screen edges.
-- **In-Game Automatic Home Indicator Hiding**: Configured root view controller UIKit preferences to automatically fade the home indicator bar during active gameplay.
-- **Multi-Language Selector**: Native startup language picker offering 13 selectable languages plus a "Follow System" option (14 choices total), storing user choice in application preferences without altering game save data.
-- **Opt-in 1560x720 Native Widescreen Experiment**:
-  - Optional internal render target expansion to 1560x720 (disabled by default; selectable before starting game).
-  - Projection adjustments for shared perspective matrices (0x3c0184) and shared orthographic 16:9 canvases (0xf190c) to compensate for horizontal stretching.
-- **External RomFS Resource Architecture**: Separates game RomFS resources from the core executable, keeping the sideloaded application package compact (~410 MB).
-- **Verification Tooling**: Included portable offline verification scripts (`scripts/check_ios17_compile.py` and `scripts/test_pipeline_cache.py`).
+- **DisplayLink FIFO Ordering (`DM_PRESENT_FIFO`)**:
+  - Synced upstream PR #31 (`6400306`).
+  - Solves the frame pacing regression where dequeuing the newest frame dropped earlier frames when two frames landed in the same refresh cycle (16–17.5 ms frame times), causing the following frame to stay on screen for 33 ms.
+  - Keeps at most one frame behind the newest in FIFO order, smoothing frame delivery and eliminating 33 ms hold hitches.
+  - Verified offline via `dm/gfx/tests/t_present_handoff` (35 checks, 0 failures).
+- **ZCull Storage Allocation Size Guard**:
+  - Synced upstream commit `7c490ed`.
+  - Calculates non-zero ZCull save area based on 32x32 tiles (8 bytes per tile/layer, minimum 256 bytes) in `nvnTextureGetZCullStorageSize` and `nvnTextureBuilderGetZCullStorageSize`.
+  - Prevents game-level memory pool corruption in engines that allocate ZCull storage (e.g. Cuphead / Unity).
+  - Verified offline via `dm/gfx/tests/t_nvn` (63 checks, 0 failures).
+- **App Switching Clock Pause & VSync Synchronization**:
+  - Synced upstream commit `58eb1f8`.
+  - Added `guest_clock_read_wait()` to `hle_svc.c` (SVC 0x1E `GetSystemTick`) to prevent guest loops from reading 0 clock delta when backgrounded.
+  - Added `focus_notifies()` filter in `hle_oe.c` to suppress unnecessary focus notifications under modes 0 and 3.
+  - Implemented `mtl_link_wait_vsync()` in `nvn_mtl.m` and `hle_sdk16.c` to bind `vi::GetDisplayVsyncEvent` to display-link ticks.
+  - Verified offline via `dm/host/tests/build/t_oe` (47 checks, 0 failures).
+- **Transactional Save Multi-Mount Commit**:
+  - Synced upstream PR #25 (`f1b1f24`).
+  - Added multi-mount `Commit` overload `_ZN2nn2fs6CommitEPKPKci` in `hle_fs.c`, validating mount list atomicity and guarding against partial/independent save commits.
+- **Parental Control Free Communication Offline Query**:
+  - Synced upstream PR #38 (`8e1e8d7`).
+  - Added `_ZN2nn4pctl32CheckFreeCommunicationPermissionEb` returning false offline without opening missing IPC services.
 
 ### Changed
-- **Shader Translation Chain & Deterministic Rebuild**:
-  - Deterministic build with path mapping applied to the in-repo translator (`dmsh_xlate.dll`), establishing clean chain version `8112c06188b4` (Super Mario Bros. Wonder) in `dmsh_chain.lock` and `dmsh_chain.h` for reproducible public source builds.
-  - Fixed dynamic texture offset capability handling in the Ryujinx translator, preventing improper constant composite creation in compute shaders.
-  - Targeted Metal Shading Language compilation for iOS 17.0 AIR targets with content-addressed compiler caching.
-- **Upstream Optimizations (Selective Backports from `seedds/nxnative`)**:
-  - Backported continuous yield backoff after 2 ms.
-  - Reused texture upload slots and GPU-idle spares.
-  - Cached dirty memory page ranges and batched memory unprotection.
-  - Deferred fully covered uniform updates with conflict flushes.
-  - Corrected display interval pacing and fixed thread/audio shutdown races.
-
-### User-Reported Device Testing (2026-10-19)
-- On 2026-10-19, user device testing of build `2026101906` on iPhone 14 Pro Max (Apple A16, iOS 17.0, installed via TrollStore) reported that this build ran with no operational problems.
-- Note on historical items: earlier test builds noted a rendering color anomaly on characters in World 2 and visual stretching of menus in experimental widescreen mode; these remain documented from prior iterations with targeted retesting in 1906 pending.
+- **Metal Presentation Race Fix (Build 2026102106 retention)**:
+  - Preserved the scheduled presentation in-flight counter and mutex wait guard in `nvn_mtl.m` to eliminate secondary boot crashes caused by CAMetalDisplayLink attachment races.
+- **Header Definitions**:
+  - Added `guest_clock_read_wait` prototype to `dm/host/dm.h` and `dm/host/hle.h`.
 
 ### Verified Offline Scope
-- 7 game profiles cross-compiled 3 modified units each for arm64 iOS 17.0 with 0 availability failures (21 units total).
-- 9 isolated Metal pipeline cache fixture test cases verified with strict zero-exit-code subprocess checks and concurrency conservation invariants.
-- Verified packaging integrity: valid ZIP CRC, 6 embedded Mach-O module sections, and ad-hoc memory entitlements (`extended-virtual-addressing` and `increased-memory-limit`).
+- Built and published package `SMBWMobile-iOS17-v1.0.0-build2026102201.ipa` (391.1 MB) with TrollStore memory entitlements (`extended-virtual-addressing` and `increased-memory-limit`).
+- Verified thin arm64 Mach-O structure, iOS 17.0 deployment target, absence of Metal 4 dependencies, and embedded warmup manifest (3,204 rows).
+- Verified via unit test suites: `t_nvn` (63 passed), `t_present_handoff` (35 passed), `t_oe` (47 passed).
+
+## [Unreleased] - 2026-10-22 (Build 2026102201)
+
+### Added
+- **DisplayLink FIFO Ordering (`DM_PRESENT_FIFO`)**:
+  - Synced upstream PR #31 (`6400306`).
+  - Solves the frame pacing regression where dequeuing the newest frame dropped earlier frames when two frames landed in the same refresh cycle (16–17.5 ms frame times), causing the following frame to stay on screen for 33 ms.
+  - Keeps at most one frame behind the newest in FIFO order, smoothing frame delivery and eliminating 33 ms hold hitches.
+  - Verified offline via `dm/gfx/tests/t_present_handoff` (35 checks, 0 failures).
+- **ZCull Storage Allocation Size Guard**:
+  - Synced upstream commit `7c490ed`.
+  - Calculates non-zero ZCull save area based on 32x32 tiles (8 bytes per tile/layer, minimum 256 bytes) in `nvnTextureGetZCullStorageSize` and `nvnTextureBuilderGetZCullStorageSize`.
+  - Prevents game-level memory pool corruption in engines that allocate ZCull storage (e.g. Cuphead / Unity).
+  - Verified offline via `dm/gfx/tests/t_nvn` (63 checks, 0 failures).
+- **App Switching Clock Pause & VSync Synchronization**:
+  - Synced upstream commit `58eb1f8`.
+  - Added `guest_clock_read_wait()` to `hle_svc.c` (SVC 0x1E `GetSystemTick`) to prevent guest loops from reading 0 clock delta when backgrounded.
+  - Added `focus_notifies()` filter in `hle_oe.c` to suppress unnecessary focus notifications under modes 0 and 3.
+  - Implemented `mtl_link_wait_vsync()` in `nvn_mtl.m` and `hle_sdk16.c` to bind `vi::GetDisplayVsyncEvent` to display-link ticks.
+  - Verified offline via `dm/host/tests/build/t_oe` (47 checks, 0 failures).
+- **Transactional Save Multi-Mount Commit**:
+  - Synced upstream PR #25 (`f1b1f24`).
+  - Added multi-mount `Commit` overload `_ZN2nn2fs6CommitEPKPKci` in `hle_fs.c`, validating mount list atomicity and guarding against partial/independent save commits.
+- **Parental Control Free Communication Offline Query**:
+  - Synced upstream PR #38 (`8e1e8d7`).
+  - Added `_ZN2nn4pctl32CheckFreeCommunicationPermissionEb` returning false offline without opening missing IPC services.
+
+### Changed
+- **Metal Presentation Race Fix (Build 2026102106 retention)**:
+  - Preserved the scheduled presentation in-flight counter and mutex wait guard in `nvn_mtl.m` to eliminate secondary boot crashes caused by CAMetalDisplayLink attachment races.
+- **Header Definitions**:
+  - Added `guest_clock_read_wait` prototype to `dm/host/dm.h` and `dm/host/hle.h`.
+
+### Verified Offline Scope
+- Built and published package `SMBWMobile-iOS17-v1.0.0-build2026102201.ipa` (391.1 MB) with TrollStore memory entitlements (`extended-virtual-addressing` and `increased-memory-limit`).
+- Verified thin arm64 Mach-O structure, iOS 17.0 deployment target, absence of Metal 4 dependencies, and embedded warmup manifest (3,204 rows).
+- Verified via unit test suites: `t_nvn` (63 passed), `t_present_handoff` (35 passed), `t_oe` (47 passed).

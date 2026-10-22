@@ -51,16 +51,21 @@ void dm_set_opmode(int m) {   // called by the front end (overheat downgrade etc
     if (g_ntf_perfmode) mq_push(MSG_PERFMODE);
 }
 // FocusState: 1 InFocus, 2 OutOfFocus, 3 Background. The front end calls dm_focus_set (iOS lifecycle / Mac window losing focus)
-static _Atomic int g_focus = 1; static _Atomic uint64_t g_focus_in_ns;   // time of the most recent entry into InFocus
-int dm_focus_now(void) { return atomic_load(&g_focus); }
-uint64_t dm_focus_in_since(void) { return atomic_load(&g_focus_in_ns); }   // graphics layer display link watchdog: stalls are only computed while active, counted from activation (nvn_mtl.m mtl_present_wait)
-void dm_focus_set(int st) {
-    if (st < 1 || st > 3) die("dm_focus_set 非法状态 %d", st);
-    if (st == 1) atomic_store(&g_focus_in_ns, now_ns());
-    if (atomic_exchange(&g_focus, st) == st) return;
-    LOG("oe 焦点状态 → %d", st);
-    mq_push(MSG_FOCUS);
-}
+ static _Atomic int g_focus = 1; static _Atomic uint64_t g_focus_in_ns;   // time of the most recent entry into InFocus
+// Focus handling mode the game set (-1: none). The SDK's oe::SetFocusHandlingMode turns it into am's SetFocusHandlingMode(notify, ?, suspend) and
+// SetOutOfFocusSuspendingEnabled: 0 -> (0, 0, 1), 1 -> (1, 1, 0), 2 -> (1, 0, 1), 3 -> (0, 0, 1) + out-of-focus suspending. Only 1 and 2 ask for focus notifications; under 0 and 3
+// the system suspends the game out of focus and it never sees message 15 (the host's suspend is the guest clock freeze and the graphics gate).
+static _Atomic int g_focus_mode = -1;
+static int focus_notifies(void) { int m = atomic_load(&g_focus_mode); return m != 0 && m != 3; }   // no mode set: notify, as before
+ int dm_focus_now(void) { return atomic_load(&g_focus); }
+ uint64_t dm_focus_in_since(void) { return atomic_load(&g_focus_in_ns); }   // graphics layer display link watchdog: stalls are only computed while active, counted from activation (nvn_mtl.m mtl_present_wait)
+ void dm_focus_set(int st) {
+     if (st < 1 || st > 3) die("dm_focus_set 非法状态 %d", st);
+     if (st == 1) atomic_store(&g_focus_in_ns, now_ns());
+     if (atomic_exchange(&g_focus, st) == st) return;
+     LOG("oe 焦点状态 → %d", st);
+    if (focus_notifies()) mq_push(MSG_FOCUS);
+ }
 static int opmode(void) { return dm_opmode(); }
 
 // Screenshot / video recording switches: the host has no system screenshot service, no-op
@@ -125,7 +130,9 @@ static void oe_script_start(void) {
 static pthread_once_t g_oe_once = PTHREAD_ONCE_INIT;
 
 HLE_FORCE("_ZN2nn2oe20GetCurrentFocusStateEv", "前后台状态；由前端 dm_focus_set 驱动", int, h_oe_GetFocus, void) { return g_focus; }
-HLE_FORCE("_ZN2nn2oe20SetFocusHandlingModeENS0_17FocusHandlingModeE", "前后台切换策略；游戏设 1（收焦点通知），宿主按通知语义实现", void, h_oe_SetFocusMode, int m) { LOG("oe::SetFocusHandlingMode %d", m); }
+HLE_FORCE("_ZN2nn2oe20SetFocusHandlingModeENS0_17FocusHandlingModeE", "前后台切换策略；1与2收焦点通知，0与3不收（由系统挂起）", void, h_oe_SetFocusMode, int m) {
+    atomic_store(&g_focus_mode, m); LOG("oe::SetFocusHandlingMode %d (%s)", m, focus_notifies() ? "收焦点通知" : "失焦挂起，不发焦点通知");
+}
 
 // Notification: returns bool (w0), the host has no system notifications
 // ---------- 3D internal render scale ----------

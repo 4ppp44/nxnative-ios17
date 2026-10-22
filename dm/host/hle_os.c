@@ -85,10 +85,23 @@ static void guest_clock_freeze_apply(int on) {
 // Freezing has several unrelated reasons (0 freeze tick for testing / loading screen, 1 App in background, 2 system keyboard up): freeze if any holds, release only when all are lifted --
 // otherwise "switch to background and back while the keyboard is up" would be released early by the unfreeze on returning to foreground
 static pthread_mutex_t g_gfz_mu = PTHREAD_MUTEX_INITIALIZER; static unsigned g_gfz_reasons;
+// A suspended application does not run: Horizon suspends the whole process out of focus, iOS suspends a background app. The host freezes the guest clock in the background but its
+// guest threads go on until they block, so a guest reading the clock twice there saw no time pass. Super Mario Galaxy 2's frame pacing (main+0x5926a8) took the interval between two
+// frames as its period, got 0, and the next frame's loop that steps by it (main+0x9abd0) never ended. Guest reads of the system counter (the cntpct gate, svc GetSystemTick) wait while
+// the app is in the background (reason 1); host work (dm_host_work: inside a submit or present, which the graphics suspend waits for) reads the frozen clock, as do the other reasons
+static pthread_cond_t g_gfz_cv = PTHREAD_COND_INITIALIZER; static _Atomic int g_gfz_bg;
+void guest_clock_read_wait(void) {
+    if (!atomic_load(&g_gfz_bg) || atomic_load(&dm_host_work)) return;
+    pthread_mutex_lock(&g_gfz_mu);
+    while (g_gfz_reasons & 2u) pthread_cond_wait(&g_gfz_cv, &g_gfz_mu);
+    pthread_mutex_unlock(&g_gfz_mu);
+}
 void guest_clock_freeze_for(int reason, int on) {
     pthread_mutex_lock(&g_gfz_mu);
     if (on) g_gfz_reasons |= 1u << reason; else g_gfz_reasons &= ~(1u << reason);
     guest_clock_freeze_apply(g_gfz_reasons != 0);
+    atomic_store(&g_gfz_bg, (g_gfz_reasons & 2u) != 0);
+    if (!(g_gfz_reasons & 2u)) pthread_cond_broadcast(&g_gfz_cv);   // after the clock is running again: a released read sees it continue
     pthread_mutex_unlock(&g_gfz_mu);
 }
 void guest_clock_freeze(int on) { guest_clock_freeze_for(0, on); }

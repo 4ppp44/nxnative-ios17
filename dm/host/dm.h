@@ -71,6 +71,7 @@ int dm_detclock_enabled(void);
 void dm_guest_clock_advanced(void);
 void guest_clock_freeze(int on);
 void guest_clock_freeze_for(int reason, int on);   // Freeze by reason (1 background, 2 system keyboard); see hle_os.c
+void guest_clock_read_wait(void);
 void dm_guest_frame_tick(void);        // Called on every present (hle_nvn.c): when DM_DETCLOCK is on, advances the guest clock by one fixed step
 int dm_nvn_ruler_truth(void);         // 1 during the ground-truth phase of the visual ruler (the first two screenshots with DM_NVN_RULER=1)
 uint64_t dm_nvn_frame_count(void);

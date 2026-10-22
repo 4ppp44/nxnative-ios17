@@ -465,10 +465,9 @@ void (*g_dm_pre_commit_hook[4])(const char *workdir);   // called before commit 
 void (*g_dm_save_commit_hook)(const char *commit_dir);   // called after a save commit succeeds (committed directory); the iOS iCloud sync sets it, NULL on the host
 static _Atomic uint64_t g_save_commits;   // number of successful commits (used by the front end when going to background to wait for "the game's current save has been committed")
 uint64_t dm_fs_commit_count(void) { return atomic_load(&g_save_commits); }
-HLE_FORCE("_ZN2nn2fs6CommitEPKc", "fsp-srv；事务式存档：工作目录整树 clone 后与已提交目录原子互换（renamex_np RENAME_SWAP）", Result, h_fs_Commit, const char *name) {
-    PATH_LOCK(); pthread_mutex_lock(&g_lock);
-    int i = 0; while (i < g_nmnt && strcmp(g_mnt[i].name, name)) i++;
-    if (i == g_nmnt || !g_mnt[i].commit[0]) { pthread_mutex_unlock(&g_lock); return RES_OK; }   // non-transactional mount: nothing to commit
+// Both Commit overloads share this transaction engine. Caller holds the path
+// and mount locks; front-end failure notification is delivered after unlocking.
+static Result commit_mount_locked(int i, int *notify_error) {
     uint64_t tc0 = clock_gettime_nsec_np(CLOCK_MONOTONIC), tw0 = atomic_exchange(&g_txn_first_ns, 0);
     for (int k = 0; k < 4; k++) if (g_dm_pre_commit_hook[k]) g_dm_pre_commit_hook[k](g_mnt[i].dir);
     uint64_t tc1 = clock_gettime_nsec_np(CLOCK_MONOTONIC);   // side files written into the working directory are swapped in atomically together with this commit
@@ -485,17 +484,14 @@ HLE_FORCE("_ZN2nn2fs6CommitEPKc", "fsp-srv；事务式存档：工作目录整�
         }
         if (d0) closedir(d0);
         int nopen = 0; for (int k = 0; k < 65536; k++) nopen += g_fsave[k];   // save files still open: after re-cloning, these handles point into the deleted old working directory
-        // First clone the committed version into a sibling temporary directory; once that succeeds, atomically swap it with the tainted work directory and delete the swapped-out one. If any step fails, do not exit: the work directory stays and the "tainted" mark is put back
-        // (the next commit is refused again and recloning is retried); the committed version is unchanged (before, the work directory was deleted first and then recloned, and a failed clone called die, so with a full disk the process exited and the work directory was gone)
         char re[1100]; snprintf(re, sizeof re, "%s.re", g_mnt[i].dir); int rerr = 0;
         if (!access(re, F_OK) && rm_tree(re)) rerr = errno ? errno : EIO;
         else if (dm_fs_test_fail("reclone") || clonefile(g_mnt[i].commit, re, 0)) { rerr = errno ? errno : EIO; rm_tree(re); }
         else if (renamex_np(re, g_mnt[i].dir, RENAME_SWAP)) { rerr = errno ? errno : EIO; rm_tree(re); }
         else rm_tree(re);                                               // the swapped-out tainted work directory
         if (rerr) { save_poison(perr); LOG("【红】存档事务：重新克隆工作目录失败 errno=%d——工作目录不动、保持已污染（下次提交照样拒绝并重试），已提交版本不变", rerr); }
-        pthread_mutex_unlock(&g_lock);
         LOG("【红】存档提交拒绝：本事务有存档写失败 errno=%d（工作目录里 0 字节文件：%s）；已提交版本不变，工作目录%s%s", perr, tl ? torn + 1 : "无", rerr ? "没能重新克隆（见上一行）" : "已从已提交版重新克隆", nopen ? "；【红】仍有存档文件开着" : "");
-        front_save_failed(perr);
+        *notify_error = perr;
         return RES_FAIL;
     }
     char neu[1100]; snprintf(neu, sizeof neu, "%s.new", g_mnt[i].commit);
@@ -504,12 +500,46 @@ HLE_FORCE("_ZN2nn2fs6CommitEPKc", "fsp-srv；事务式存档：工作目录整�
     if (clonefile(g_mnt[i].dir, neu, 0)) { LOG("【红】存档提交：clonefile %s 失败 errno=%d（已提交版本不变）", neu, errno); r = RES_FAIL; }
     else if (renamex_np(neu, g_mnt[i].commit, RENAME_SWAP)) { LOG("【红】存档提交：原子互换失败 errno=%d（已提交版本不变）", errno); rm_tree(neu); r = RES_FAIL; }
     else rm_tree(neu);                                                  // the old version that was swapped out
-    // Timing readouts (integer microseconds, no floating point): how long the pre-commit hook and the clone + atomic swap each took; how long in total from this transaction's first save write to the end of the commit (the game writing files + the commit; 0 = no save write in this transaction)
     static int n; if (r == RES_OK) { uint64_t tc2 = clock_gettime_nsec_np(CLOCK_MONOTONIC);
         LOG("存档提交 #%d：%s 原子换入 %s（此前存档写 %d 次）（钩子 %llu 微秒、克隆换入 %llu 微秒、自本事务首次写起 %llu 微秒）", ++n, g_mnt[i].dir, g_mnt[i].commit, atomic_load(&g_save_writes),
             (unsigned long long)((tc1 - tc0) / 1000), (unsigned long long)((tc2 - tc1) / 1000), (unsigned long long)(tw0 ? (tc2 - tw0) / 1000 : 0)); atomic_fetch_add(&g_save_commits, 1);
         if (g_dm_save_commit_hook) g_dm_save_commit_hook(g_mnt[i].commit); }   // iCloud sync (cloud_ios.m): called with the lock held, that side only takes a clonefile snapshot
+    return r;
+}
+HLE_FORCE("_ZN2nn2fs6CommitEPKc", "fsp-srv；事务式存档：工作目录整树 clone 后与已提交目录原子互换（renamex_np RENAME_SWAP）", Result, h_fs_Commit, const char *name) {
+    PATH_LOCK(); pthread_mutex_lock(&g_lock);
+    int i = 0; while (i < g_nmnt && strcmp(g_mnt[i].name, name)) i++;
+    if (i == g_nmnt || !g_mnt[i].commit[0]) { pthread_mutex_unlock(&g_lock); return RES_OK; }   // non-transactional mount: nothing to commit
+    int notify_error = 0; Result r = commit_mount_locked(i, &notify_error);
     pthread_mutex_unlock(&g_lock);
+    if (notify_error) front_save_failed(notify_error);
+    return r;
+}
+// A mount list is atomic only when every name addresses the same host backing
+// transaction. Validate the whole list first. Independent save trees cannot be
+// swapped atomically together, so refuse them without publishing either tree.
+// Writable mounts without a transaction (cache / temporary storage, journaled on
+// Horizon) are already on disk: skipped, as the single-name Commit returns OK.
+HLE_FORCE("_ZN2nn2fs6CommitEPKPKci", "fsp-srv；提交同源事务的多挂载列表；跨独立存档提交不被支持并予拒绝", Result, h_fs_CommitList, const char *const *names, int count) {
+    if (count < 0 || count > MAX_MOUNT || (count && !names)) return RES_FAIL;
+    if (!count) return RES_OK;
+    PATH_LOCK(); pthread_mutex_lock(&g_lock);
+    int target = -1, notify_error = 0; Result r = RES_FAIL;
+    for (int k = 0; k < count; k++) {
+        if (!names[k] || strnlen(names[k], sizeof g_mnt[0].name) == sizeof g_mnt[0].name) goto out;
+        int i = 0; while (i < g_nmnt && strcmp(g_mnt[i].name, names[k])) i++;
+        if (i == g_nmnt || g_mnt[i].ro) goto out;
+        if (!g_mnt[i].commit[0]) continue;
+        if (target >= 0 && (strcmp(g_mnt[target].commit, g_mnt[i].commit) || strcmp(g_mnt[target].dir, g_mnt[i].dir))) {
+            LOG("【红】Commit 挂载列表跨多个独立存档；拒绝执行且不发生部分提交");
+            goto out;
+        }
+        if (target < 0) target = i;
+    }
+    r = target < 0 ? RES_OK : commit_mount_locked(target, &notify_error);
+out:
+    pthread_mutex_unlock(&g_lock);
+    if (notify_error) front_save_failed(notify_error);
     return r;
 }
 // SDK 11's old name: CommitSaveData(mount name) is the later Commit (Metroid Dread)
