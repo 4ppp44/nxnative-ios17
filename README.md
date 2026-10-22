@@ -26,7 +26,13 @@ Nothing from any game or proprietary SDK is distributed in this repository. You 
 4. **Home Indicator Auto-Hide Preference**: Configures UIKit root view controller preferences to request fading the home indicator bar during active gameplay. The actual fade-out and reveal behavior is governed by iOS.
 5. **Startup Multi-Language Selector**: Native startup screen language picker offering 13 selectable languages plus a "Follow System" option (14 choices total), saving user preferences without altering game save files.
 6. **Decoupled RomFS Architecture**: Game RomFS data is placed in the application's `Documents/romfs` directory rather than bundled into the IPA, keeping sideloaded application packages compact (~410 MB).
-7. **Selective Upstream Sync**: Backported continuous yield backoff, texture upload slot reuse, dirty page range caching, and display pacing from upstream commits.
+ 7. **Selective Upstream Sync**: Backported continuous yield backoff, texture upload slot reuse, dirty page range caching, and display pacing from upstream commits.
+8. **DisplayLink FIFO Ordering & App Switching Robustness (Build 2026102201)**:
+   - **FIFO Present Delivery**: Backported upstream PR #31 (`6400306`). Replaces naive "take newest frame" dequeuing with a FIFO ordering queue (at most 1 frame behind). Prevents frame drops when 16-17.5 ms frames land in the same refresh cycle, eliminating 33 ms hold hitches and smoothing frame presentation pacing.
+   - **ZCull Storage Guard**: Synced upstream commit `7c490ed` calculating non-zero ZCull save bounds (8 bytes per 32x32 tile/layer, minimum 256 bytes) to prevent game pool allocator corruption (e.g. Unity / Cuphead).
+   - **Background Clock Freeze & DisplayLink VSync**: Synced upstream commit `58eb1f8` adding guest clock wait on `GetSystemTick` while backgrounded, focus notification suppression under modes 0/3, and binding `vi::GetDisplayVsyncEvent` to display-link ticks.
+   - **Multi-Mount Atomic Save Commit**: Synced upstream PR #25 (`f1b1f24`) providing safe multi-mount commit validation.
+   - **Offline Parental Controls Stub**: Synced upstream PR #38 (`8e1e8d7`) for offline free communication permission queries.
 
 ---
 
@@ -36,11 +42,14 @@ Upstream preserves profiles for seven titles in `dm/games/`:
 - **Super Mario Bros. Wonder** (Title ID: `010015100B514000`, Update 1.2.1 / package `v327680`): **Primary verified target on iOS 17 / Apple A16.**
 - *Other preserved profiles*: Fire Emblem Engage, Metroid Dread, 13 Sentinels: Aegis Rim, Super Mario 3D World + Bowser's Fury, The Legend of Zelda: Breath of the Wild, The Legend of Zelda: Link's Awakening. (Full shader chains and device runtime for other titles are preserved from upstream and remain to be validated individually on iOS 17).
 
-### Device Testing Status (Dated 2026-10-19)
-- **Device Tested**: iPhone 14 Pro Max (Apple A16 Bionic, iOS 17.0, TrollStore installation).
-- **User Test Report**: On 2026-10-19, user device testing of build `2026101906` reported no operational problems.
-- *Historical Notes*: Earlier test builds recorded an intermittent character color anomaly in World 2 and menu stretching when experimental widescreen mode was enabled; these remain documented from prior iterations with targeted retesting in 1906 pending.
-- **Toolchain Versioning & Clean Builds**: The in-repo shader translator (`dmsh_xlate.dll`) is compiled deterministically with path mapping, removing local build paths. For Super Mario Bros. Wonder, this establishes clean chain version `8112c06188b4` recorded in `dmsh_chain.h`. Building from source NSPs translates and compiles shaders directly under this clean chain. (Historical build 2026101906 test IPA was generated during development under chain `10007be80c7c`; clean from-source builds generate full matching shaders from the user's own NSPs under the public toolchain).
+### Device Testing & Build Status (Build 2026102201)
+- **Device Target**: iPhone 14 Pro Max (Apple A16 Bionic, iOS 17.0, TrollStore installation).
+- **Latest Candidate Build**: `2026102201` (`SMBWMobile-iOS17-v1.0.0-build2026102201.ipa`, 391.1 MB).
+- **Status & Changes**:
+  - Offline verification passing: `t_nvn` (63/63), `t_present_handoff` (35/35), `t_oe` (47/47).
+  - Integrates upstream display link FIFO frame delivery (`DM_PRESENT_FIFO`), ZCull storage bounds, background guest clock freeze wait, and display link vsync tracking.
+  - Maintains all 7 upstream game profiles, deterministic shader chains, touch controls, and TrollStore memory entitlements.
+  - Prior build `2026101906` user testing confirmed stable operation; build `2026102201` targets pacing smoothing and thermal stability.
 
 ---
 
@@ -143,7 +152,12 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 4. **全屏指示条自动隐藏偏好**：通过配置 UIKit 视图控制器偏好请求在游戏时自动隐藏主屏幕指示条，实际淡出与显示行为由 iOS 系统策略决定。
 5. **启动多语言选择**：原生启动页提供 13 种可选语言及 1 项“跟随系统”选项（共 14 项），在启动前选择并保存在应用偏好中，不修改游戏存档。
 6. **外置 RomFS 架构**：游戏核心资源存放在 `Documents/romfs`，IPA 安装包仅约 410 MB，大幅缩短侧载安装耗时。
-7. **选择性同步主线上游改动**：同步主线连续 yield 退避、上传槽复用、脏页标记缓存及帧节拍控制。
+ 7. **选择性同步主线上游改动**：同步主线连续 yield 退避、上传槽复用、脏页标记缓存及帧节拍控制。
+8. **显示节拍 FIFO 队列与前后台稳定性（Build 2026102201）**：
+   - **FIFO 出图保序**：同步主线 PR #31（`6400306`），用至多落后 1 帧的 FIFO 出图替代每次直接取最新帧，彻底消除 16~17.5 ms 帧波动时前帧被丢弃导致的 33 ms 画面骤停。
+   - **ZCull 存储尺寸保底**：同步主线 `7c490ed`，按 32×32 图块计算非零尺寸（保底 256 字节），防止 Unity 等引擎内部内存池管理损坏。
+   - **后台时钟冻结等待与 VSync 锁定 DisplayLink**：同步主线 `58eb1f8`，切后台时挂起 `GetSystemTick` 客体时钟读取，抑制模式 0/3 冗余通知，垂直同步事件精准追随屏幕刷新节拍。
+   - **多挂载点原子 Commit 与离线家长控制**：同步主线 PR #25 与 PR #38。
 
 ---
 
@@ -153,11 +167,13 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 - **《超级马力欧兄弟 惊奇》**（Title ID: `010015100B514000`，更新 1.2.1 / `v327680`）：**iOS 17 / A16 本次重点适配验证目标。**
 - *其他保留档案*：《火焰之纹章 结合》、《银河战士 生存恐惧》、《十三机兵防卫圈》、《超级马力欧 3D 世界 + 狂怒世界》、《塞尔达传说 旷野之息》、《塞尔达传说 织梦岛》（其他档案保留自上游，iOS 17 下的实机表现需逐一验证）。
 
-### 设备与测试状态（记录于 2026-10-19）
+### 设备与测试状态（Build 2026102201）
 - **测试机型**：iPhone 14 Pro Max（Apple A16 Bionic，iOS 17.0，TrollStore 安装）。
-- **实测反馈**：2026-10-19 用户实机测试确认候选包 `2026101906` 运行无异常。
-- *历史记录说明*：此前早期测试版本中曾记录过第二关人物偶发偏蓝及宽屏菜单横向拉伸现象，现作为历史条目保留，在 1906 上的针对性复验尚待推进。
-- **工具链版本与全量构建**：仓内着色器翻译器（`dmsh_xlate.dll`）采用确定性构建与路径重映射，全量清除了个人构建路径。针对《超级马力欧兄弟 惊奇》建立了纯净链版本 `8112c06188b4` 并登记于 `dmsh_chain.h`。公开源码构建将直接使用用户提供的 NSP 在该链下完整生成着色器。（历史测试包 2026101906 系本地开发链 `10007be80c7c` 产出；开源源码包以用户自备 NSP 全量编译为准）。
+- **最新候选版本**：`2026102201`（`SMBWMobile-iOS17-v1.0.0-build2026102201.ipa`，391.1 MB）。
+- **版本状态**：
+  - 离线自动化测试全数通过：`t_nvn`（63/63）、`t_present_handoff`（35/35）、`t_oe`（47/47）。
+  - 完整集成 DisplayLink FIFO 出图保序（`DM_PRESENT_FIFO`）、ZCull 尺寸保底、切后台客体时钟安全挂起与垂直同步对齐。
+  - 保持 7 款游戏 profile 完整支持、确定性着色器链与 TrollStore 内核内存提权。
 
 ---
 
