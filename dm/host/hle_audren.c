@@ -26,22 +26,60 @@ void dm_pcmout_wait(void *k, int ms);
 
 // P_SIZE: bytes of the game's AudioRendererParameter copied before the two fields are changed. SDK 16's struct is 0x38 bytes; SDK 8's (Link's Awakening) has one more word,
 // its revision at +0x38: copying only 0x38 left the revision uninitialized and the SDK rejected it (CheckValidRevision, Result 0x499). The SDK reads only its own size of the copy
-enum { P_DEVICE = 0x2c, P_MODE = 0x30, P_SIZE = 0x40, FRAME_MAX = 1024, NBUF = 4 };
-static void *gsym(const char *n) { void *p = guest_sym(n); if (!p) die("audren：缺 SDK 符号 %s", n); return p; }
-static void cpu_manual(uint8_t *dst, const uint8_t *src) { memcpy(dst, src, P_SIZE); *(int32_t *)(dst + P_DEVICE) = 1; *(int32_t *)(dst + P_MODE) = 1; }
-
-HLE_FORCE("_ZN2nn5audio30GetAudioRendererWorkBufferSizeERKNS0_22AudioRendererParameterE", "渲染器工作区大小：按 CPU 渲染 + 手动执行的参数算",
-          size_t, h_ar_WorkSize, const uint8_t *param) {
-    static size_t (*orig)(const uint8_t *); if (!orig) orig = gsym("_ZN2nn5audio30GetAudioRendererWorkBufferSizeERKNS0_22AudioRendererParameterE");
-    uint8_t p[P_SIZE]; cpu_manual(p, param); return orig(p);
+enum { P_DEVICE = 0x2c, P_MODE = 0x30, P_SIZE = 0x40, WORK_PAGE = 0x1000, FRAME_MAX = 1024, NBUF = 4 };
+ static void *gsym(const char *n) { void *p = guest_sym(n); if (!p) die("audren：缺 SDK 符号 %s", n); return p; }
+ static void cpu_manual(uint8_t *dst, const uint8_t *src) { memcpy(dst, src, P_SIZE); *(int32_t *)(dst + P_DEVICE) = 1; *(int32_t *)(dst + P_MODE) = 1; }
+ 
+static size_t ar_align(size_t n, size_t alignment) { return (n + alignment - 1) & ~(alignment - 1); }
+// Horizon's renderer service budget, through renderer revision 15. Its command/state representation is independent of the application's SDK: an older client still uses the
+// service's compact commands. The SDK's local server instead sizes its own CPU command structures, so forwarding its size inflates the guest's service requirement.
+// Derived from the service's sizing and revision gates; checked against its isolated machine-code execution. No firmware code is needed at runtime. Unknown revisions retain
+// the SDK requirement. SDK 8 keeps the public parameter revision at +0x38, while SDK 9+ uses +0x34 (the copied parameter holds both).
+static size_t ar_service_work_size(const uint8_t *p) {
+    uint32_t revision = *(const uint32_t *)(p + 0x34);
+    if ((revision & 0xffffff) != 0x564552) revision = *(const uint32_t *)(p + 0x38);
+    if ((revision & 0xffffff) != 0x564552 || revision < 0x31564552 || revision > 0x3f564552) return 0;
+    unsigned r = (revision >> 24) - 0x30;
+    size_t n[11];
+    for (int i = 0; i < 11; i++) {
+        if (i == 8) { n[i] = p[0x20]; continue; }   // voice-drop is a byte; the following public-struct padding is not initialized
+        int32_t v = ((const int32_t *)p)[i];
+        if (v < 0 || v > 0x100000) return 0;   // bound arithmetic even if the caller supplied an invalid parameter
+        n[i] = (size_t)v;
+    }
+    size_t mix = n[2], sub = n[3], voices = n[4], sinks = n[5], effects = n[6], perf = n[7], splitters = n[9], dest = n[10], mixes = sub + 1;
+    size_t size = ar_align(((sinks + sub) * 0x3c0 + n[1] * 4) * (mix + 6), 64);
+    size += ar_align(mix * 4, 64) + sub * 0x400 + mixes * 0x940 + ar_align(mixes * 8, 16);
+    size += voices * 0x1d0 + ar_align(voices * (r >= 15 ? 0x238 : 0x220), 16) + ar_align(voices * 8, 16);
+    if (r >= 2) {
+        size_t graph = mixes * mixes * 4 + mixes * 12 + 2 * ar_align(mixes, 64) / 8 + ar_align(mixes * mixes, 64) / 8;
+        size += ar_align(graph, 16);
+        size += splitters * 0x20 + ar_align(dest * (r >= 12 ? (r >= 15 ? 0x130 : 8) : 0xe0), 16);
+        if (r < 5) size += ar_align(dest * 4, 16);
+    }
+    size += (effects + voices * 4) * 0x20 + 0x50;
+    if (r >= 12 && splitters && dest) size += ar_align(dest * (r >= 14 ? 0xe0 : 0x80), 64);
+    size = ar_align(size + (r >= 9 ? effects * 0x80 : 0), 64);
+    size += (sinks + sub) * 0x280 + effects * (r >= 9 ? 0x530 : 0x4b0) + sinks * 0x170 + voices * 0x100 + 0x40;
+    if (perf) {
+        size_t frame = (sub + voices + sinks + effects + 1) * (r >= 5 ? 0x18 : 0x10) + (r >= 5 ? 0x990 : 0x658);
+        size += ar_align(frame * (perf + 1), 64) + 0xc0;
+    }
+    size_t commands = 0x18000;
+    if (r >= 5) commands = effects * 0x540 + sub * 0x3f24 + sinks * 0x130 + dest * 0x360
+        + voices * (splitters * 0x50 + (r >= 8 ? 0x284 : 0x250)) + (voices + sub + effects + sinks + 0x65) * 0x28 + 0x2c4;
+    return ar_align(size + commands + 0x7e, WORK_PAGE);
 }
-HLE_FORCE("_ZN2nn5audio17OpenAudioRendererEPNS0_19AudioRendererHandleERKNS0_22AudioRendererParameterEPvm", "开渲染器：改成 CPU 渲染 + 手动执行后走 SDK 进程内渲染器",
-          Result, h_ar_Open0, void **handle, const uint8_t *param, void *work, size_t sz) {
-    static Result (*orig)(void **, const uint8_t *, void *, size_t);
-    if (!orig) orig = gsym("_ZN2nn5audio17OpenAudioRendererEPNS0_19AudioRendererHandleERKNS0_22AudioRendererParameterEPvm");
-    uint8_t p[P_SIZE]; cpu_manual(p, param); return orig(handle, p, work, sz);
-}
 
+HLE_FORCE("_ZN2nn5audio30GetAudioRendererWorkBufferSizeERKNS0_22AudioRendererParameterE", "渲染器工作区：DSP 服务预算，差额由宿主补齐本地 CPU 后端",
+           size_t, h_ar_WorkSize, const uint8_t *param) {
+     static size_t (*orig)(const uint8_t *); if (!orig) orig = gsym("_ZN2nn5audio30GetAudioRendererWorkBufferSizeERKNS0_22AudioRendererParameterE");
+    uint8_t p[P_SIZE]; cpu_manual(p, param); size_t n = orig(p);
+    size_t service = *(int32_t *)(param + P_DEVICE) == 0 ? ar_service_work_size(p) : 0;
+    size_t guest_n = service ? service : n;
+    { static int once; if (!once++) LOG("audren: 工作区客体需求 %#zx，本地 CPU/手动渲染器 %#zx", guest_n, n); }
+    return guest_n;
+ }
 // ---------- rendering and output ----------
 static void *g_handle[2];                    // AudioRendererHandle (renderer object, client state)
 static _Atomic int g_open;
@@ -85,11 +123,24 @@ HLE_FORCE("_ZN2nn5audio17OpenAudioRendererEPNS0_19AudioRendererHandleEPNS_2os11S
     static Result (*orig)(void **, void *, const uint8_t *, void *, size_t);
     if (!orig) orig = gsym("_ZN2nn5audio17OpenAudioRendererEPNS0_19AudioRendererHandleEPNS_2os11SystemEventERKNS0_22AudioRendererParameterEPvm");
     uint8_t p[P_SIZE]; cpu_manual(p, param);
-    LOG("audren：OpenAudioRenderer 采样率 %d 每帧 %d 混音缓冲 %d 子混音 %d 声部 %d 输出 %d 效果 %d 分路 %d（原设备 %d 模式 %d → CPU / 手动）",
+    LOG("audren：OpenAudioRenderer 采样率 %d 每帧 %d 混音缓冲 %d 子混音 %d 声部 %d 输出 %d 效果 %d 分路 %d（原设备 %d 模式 %d → CPU / 手动）工作缓冲 %p+%#zx",
         *(int32_t *)param, *(int32_t *)(param + 4), *(int32_t *)(param + 8), *(int32_t *)(param + 0xc), *(int32_t *)(param + 0x10), *(int32_t *)(param + 0x14),
-        *(int32_t *)(param + 0x18), *(int32_t *)(param + 0x24), *(int32_t *)(param + P_DEVICE), *(int32_t *)(param + P_MODE));
+        *(int32_t *)(param + 0x18), *(int32_t *)(param + 0x24), *(int32_t *)(param + P_DEVICE), *(int32_t *)(param + P_MODE), work, sz);
+    void *owned = NULL;
+    if (*(int32_t *)(param + P_DEVICE) == 0 && work && !((uintptr_t)work & (WORK_PAGE - 1)) && sz >= WORK_PAGE && !(sz & (WORK_PAGE - 1))) {
+        size_t (*size)(const uint8_t *) = gsym("_ZN2nn5audio30GetAudioRendererWorkBufferSizeERKNS0_22AudioRendererParameterE");
+        size_t need = size(p);
+        size_t service = ar_service_work_size(p), guest_need = service ? service : need;
+        if (sz < guest_need) { LOG("【红】audren: 工作缓冲 %#zx 小于服务需求 %#zx", sz, guest_need); return RES_FAIL; }
+        if (need > sz) {
+            if (posix_memalign(&owned, WORK_PAGE, need)) { LOG("【红】audren: 无法分配本地渲染器工作缓冲 %#zx", need); return RES_FAIL; }
+            memset(owned, 0, need); work = owned; sz = need;
+            LOG("audren: 宿主补齐本地渲染器工作缓冲 %p+%#zx", work, sz);
+        }
+    }
     Result r = orig(handle, ev, p, work, sz);
-    if (r) { LOG("【红】audren：SDK OpenAudioRenderer 失败 %#x", r); return r; }
+    if (r) { free(owned); LOG("【红】audren：SDK OpenAudioRenderer 失败 %#x", r); return r; }
+    if (owned) objmap_put(handle[0], owned);
     if (atomic_load(&g_open)) { LOG("【红】audren：第二个渲染器（宿主只驱动一个）"); return r; }
     g_handle[0] = handle[0]; g_handle[1] = handle[1]; atomic_store(&g_open, 1);
     g_render_tt = dm_guest_thread_spawn(render_main, NULL, 9, 0x10000);
@@ -97,10 +148,10 @@ HLE_FORCE("_ZN2nn5audio17OpenAudioRendererEPNS0_19AudioRendererHandleEPNS_2os11S
 }
 HLE_FORCE("_ZN2nn5audio18CloseAudioRendererENS0_19AudioRendererHandleE", "关渲染器：先停宿主渲染线程再交 SDK", void, h_ar_Close, void *obj, void *state) {
     static void (*orig)(void *, void *); if (!orig) orig = gsym("_ZN2nn5audio18CloseAudioRendererENS0_19AudioRendererHandleE");
-    // Join the render thread first (it checks g_open every round and at most every 10 ms while waiting for the output): it may be inside exec(), which uses the renderer the SDK is about to free.
-    // A fixed 20 ms sleep used to stand in for this, and a renderer reopened inside that window ran a second thread over the first one's static buffers
     if (obj == g_handle[0] && g_render_tt) { atomic_store(&g_open, 0); dm_guest_thread_join(g_render_tt); g_render_tt = NULL; }
+    void *owned = objmap_del(obj);
     orig(obj, state);
+    free(owned);
 }
 
 // DeviceSink input mix buffers → int16 stereo. The command ID is 0x13 in SDK 16; SDK 20 inserted a command before it, making it 0x14 (written at sdk+0x233f44); SDK 8 (Link's Awakening)
